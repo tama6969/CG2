@@ -1,2 +1,10 @@
 [*.{cpp,h}]
 charest=utf-8
+
+spelling_error_severity=error
+
+spelling_checkable_types=identifiers,comments
+
+spelling_languages=en-us
+
+spelling_use_default_exclusion_path=./exclusion.dic
