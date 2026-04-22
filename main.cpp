@@ -13,6 +13,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	return DefWindowProc(hwnd, msg, wparam, lparam);
 }
 
+	void Log(const std::string& message) 
+	{
+		OutputDebugStringA(message.c_str());
+	}
+	std::string str0{"STRING!!"};
+	std::string str1_{std::to_string(10)};
 
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
