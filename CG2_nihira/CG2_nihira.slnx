@@ -4,6 +4,7 @@
   </Configurations>
   <Folder Name="/ソリューション項目/">
     <File Path=".editorconfig" />
+    <File Path=".gitignore" />
   </Folder>
   <Project Path="CG2_nihira.vcxproj" />
 </Solution>

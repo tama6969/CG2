@@ -1,0 +1,18 @@
+# Visual Studio
+.vs/
+
+# Build folders
+x64/
+Debug/
+Release/
+
+# Intermediate files
+*.obj
+*.pdb
+*.idb
+*.ilk
+*.log
+*.tlog
+
+# Executables
+*.exe

@@ -1,5 +1,5 @@
 [*.{cpp,h}]
-charest=utf-8
+charset= utf-8
 
 spelling_error_severity=error
 

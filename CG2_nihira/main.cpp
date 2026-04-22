@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <cstdint>
+#include <string>
 
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -31,9 +32,18 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	RegisterClass(&wc);
 
 
+	void Log(const std::string& message) 
+	{
+		OutputDebugStringA(message.c_str());
+	}
+
 
     const int32_t kClientWidth = 1280;
 	const int32_t kClientHeight = 720;
+
+	
+	std::string str0{"STRING!!"};
+	std::string str1_{std::to_string(10)};
 
 	RECT wrc = {0, 0, kClientWidth, kClientHeight};
 	AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);
