@@ -32,10 +32,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	RegisterClass(&wc);
 
 
-	void Log(const std::string& message) 
-	{
-		OutputDebugStringA(message.c_str());
-	}
 
 
     const int32_t kClientWidth = 1280;
