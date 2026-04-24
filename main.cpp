@@ -3,6 +3,8 @@
 #include <string>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <chrono>
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	switch (msg) {
 	case WM_DESTROY:
@@ -55,6 +57,17 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	std::string str1_{ std::to_string(10) };
 
 	std::filesystem::create_directory("logs");
+
+	auto now = std::chrono::system_clock::now();
+	auto nowSec = std::chrono::time_point_cast<std::chrono::seconds>(now);
+
+	auto localTime = std::chrono::zoned_time{ std::chrono::current_zone(), nowSec };
+
+	std::string dateString = std::format("{:%Y%m%d_%H%M%S}", localTime);
+
+	std::string logFilePath = ("logs/") + dateString + ".log";
+
+	std::ofstream logStream(logFilePath);
 
 	Log(std::format("str0 = {}", str0));
 	Log(std::format("str1 = {}", str1_));
