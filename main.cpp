@@ -1,7 +1,7 @@
 #include <windows.h>
 #include <cstdint>
 #include <string>
-
+#include<filesystem>
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	switch (msg) {
@@ -12,18 +12,37 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	}
 	return DefWindowProc(hwnd, msg, wparam, lparam);
 }
+std::string ConvertString(const std::wstring& str) {
+	if (str.empty()) return {};
 
-	void Log(const std::string& message) 
-	{
-		OutputDebugStringA(message.c_str());
-	}
-	std::string str0{"STRING!!"};
-	std::string str1_{std::to_string(10)};
+	int size = WideCharToMultiByte(CP_UTF8, 0, str.data(), -1, nullptr, 0, nullptr, nullptr);
+	std::string result(size - 1, 0);
 
+	WideCharToMultiByte(CP_UTF8, 0, str.data(), -1, result.data(), size, nullptr, nullptr);
+	return result;
+}
+
+// =================================
+// Log（string版）
+// =================================
+void Log(const std::string& message) {
+	OutputDebugStringA(message.c_str());
+}
+
+// =================================
+// Log（wstring版）← 追加
+// =================================
+void Log(const std::wstring& message) {
+	Log(ConvertString(message));
+}
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	OutputDebugStringA("Hello,DirectX!!\n");
 	
+	std::string str0{"STRING!!"};
+	std::string str1_{std::to_string(10)};
+
+	std::filesystem::create_directory("logs");
 
 
 	 // =========================
@@ -44,8 +63,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	const int32_t kClientHeight = 720;
 
 	
-	std::string str0{"STRING!!"};
-	std::string str1_{std::to_string(10)};
 
 	RECT wrc = {0, 0, kClientWidth, kClientHeight};
 	AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);

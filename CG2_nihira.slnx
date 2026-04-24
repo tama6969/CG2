@@ -6,5 +6,5 @@
     <File Path=".editorconfig" />
     <File Path=".gitignore" />
   </Folder>
-  <Project Path="CG2_nihira.vcxproj" />
+  <Project Path="CG2_nihira.vcxproj" Id="31d6d457-405d-4bbc-a934-d5de3e58f919" />
 </Solution>
