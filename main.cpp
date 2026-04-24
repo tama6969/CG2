@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <filesystem>
-
+#include <format>
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	switch (msg) {
 	case WM_DESTROY:
@@ -35,8 +35,12 @@ std::string ConvertString(const std::wstring& str) {
 	return result;
 }
 
-
 void Log(const std::string& message) {
+	OutputDebugStringA(message.c_str());
+}
+
+void Log(std::ostream& os, const std::string& message) {
+	os << message << std::endl;
 	OutputDebugStringA(message.c_str());
 }
 
@@ -45,14 +49,16 @@ void Log(const std::wstring& message) {
 }
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
-	OutputDebugStringA("Hello,DirectX!!\n");
+	Log("Hello,DirectX!!\n");
 
 	std::string str0{ "STRING!!" };
 	std::string str1_{ std::to_string(10) };
 
 	std::filesystem::create_directory("logs");
 
-
+	Log(std::format("str0 = {}", str0));
+	Log(std::format("str1 = {}", str1_));
+	Log(std::format("value = {}", 10));
 	// =========================
    // ウィンドウクラス登録
    // =========================
@@ -71,7 +77,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	const int32_t kClientHeight = 720;
 
 
-
+	 
 	RECT wrc = { 0, 0, kClientWidth, kClientHeight };
 	AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);
 
