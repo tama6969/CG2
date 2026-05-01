@@ -5,6 +5,16 @@
 #include <format>
 #include <fstream>
 #include <chrono>
+#include<d3d12.h>
+#include<dxgi1_6.h>
+#include<cassert>
+#pragma comment(lib,"d3d12.lib")
+#pragma comment(lib,"dxgi.lib")
+
+
+
+
+
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	switch (msg) {
 	case WM_DESTROY:
@@ -49,9 +59,75 @@ void Log(std::ostream& os, const std::string& message) {
 void Log(const std::wstring& message) {
 	Log(ConvertString(message));
 }
+
+
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	Log("Hello,DirectX!!\n");
+
+
+
+
+	IDXGIFactory7* dxgiFactory = nullptr;
+	HRESULT hr = CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory));
+	assert(SUCCEEDED(hr));
+
+	IDXGIAdapter4* useAdapter = nullptr;
+
+	for (UINT i = 0;
+		dxgiFactory->EnumAdapterByGpuPreference(
+			i,
+			DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+			IID_PPV_ARGS(&useAdapter)
+		) != DXGI_ERROR_NOT_FOUND;
+		++i)
+	{
+		DXGI_ADAPTER_DESC3 desc{};
+		hr = useAdapter->GetDesc3(&desc);
+		assert(SUCCEEDED(hr));
+
+		// ソフトウェアGPUは除外
+		if (!(desc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE)) {
+			Log(std::format("Use Adapter: {}\n",
+				ConvertString(desc.Description)));
+			break;
+		}
+
+		useAdapter = nullptr;
+	}
+
+
+	ID3D12Device* device = nullptr;
+
+	// 試す機能レベル（高い順）
+	D3D_FEATURE_LEVEL levels[] = {
+		D3D_FEATURE_LEVEL_12_2,
+		D3D_FEATURE_LEVEL_12_1,
+		D3D_FEATURE_LEVEL_12_0
+	};
+
+	const char* levelStrings[] = { "12.2", "12.1", "12.0" };
+
+	for (int i = 0; i < 3; i++) {
+		hr = D3D12CreateDevice(
+			useAdapter,
+			levels[i],
+			IID_PPV_ARGS(&device)
+		);
+
+		if (SUCCEEDED(hr)) {
+			Log(std::format("FeatureLevel : {}\n", levelStrings[i]));
+			break;
+		}
+	}
+
+	assert(device != nullptr);
+	Log("Complete create D3D12Device!!\n");
+	assert(useAdapter != nullptr);
+
+
+
+
 
 	std::string str0{ "STRING!!" };
 	std::string str1_{ std::to_string(10) };
