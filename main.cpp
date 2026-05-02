@@ -8,9 +8,11 @@
 #include<d3d12.h>
 #include<dxgi1_6.h>
 #include<cassert>
+#include <dbghelp.h>
+#include <strsafe.h>
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
-
+#pragma comment(lib, "Dbghelp.lib")
 
 
 
@@ -60,8 +62,59 @@ void Log(const std::wstring& message) {
 	Log(ConvertString(message));
 }
 
+static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
 
+	SYSTEMTIME time;
+	GetLocalTime(&time);
+
+	wchar_t filePath[MAX_PATH]{};
+
+	CreateDirectory(L"./Dumps", nullptr);
+
+	StringCchPrintfW(
+		filePath,
+		MAX_PATH,
+		L"./Dumps/%04d%02d%02d_%02d%02d%02d.dmp",
+		time.wYear, time.wMonth, time.wDay,
+		time.wHour, time.wMinute, time.wSecond
+	);
+
+	HANDLE file = CreateFile(
+		filePath,
+		GENERIC_READ | GENERIC_WRITE,
+		0,
+		nullptr,
+		CREATE_ALWAYS,
+		FILE_ATTRIBUTE_NORMAL,
+		nullptr
+	);
+
+	DWORD processId = GetCurrentProcessId();
+	DWORD threadId = GetCurrentThreadId();
+
+	MINIDUMP_EXCEPTION_INFORMATION info{};
+	info.ThreadId = threadId;
+	info.ExceptionPointers = exception;
+	info.ClientPointers = TRUE;
+
+	MiniDumpWriteDump(
+		GetCurrentProcess(),
+		processId,
+		file,
+		MiniDumpNormal,
+		&info,
+		nullptr,
+		nullptr
+	);
+
+	return EXCEPTION_EXECUTE_HANDLER;
+}
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
+
+	
+
+	SetUnhandledExceptionFilter(ExportDump);
+	
 
 	Log("Hello,DirectX!!\n");
 
