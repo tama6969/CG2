@@ -122,15 +122,19 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
 }
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
-	
-
 	SetUnhandledExceptionFilter(ExportDump);
-	
 
 	Log("Hello,DirectX!!\n");
 
-
-
+#ifdef _DEBUG
+	ID3D12Debug1* debugController = nullptr;
+	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
+		// デバッグレイヤーを有効化する
+		debugController->EnableDebugLayer();
+		// さらにGPU側でもチェックを行うようにする
+		debugController->SetEnableGPUBasedValidation(TRUE);
+	}
+#endif
 
 	IDXGIFactory7* dxgiFactory = nullptr;
 	HRESULT hr = CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory));
@@ -248,7 +252,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		nullptr,
 		IID_PPV_ARGS(&commandList)
 	);
-	commandList->Close();
 	assert(SUCCEEDED(hr));
 
 	std::string str0{ "STRING!!" };
@@ -298,15 +301,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		wrc.right - wrc.left, wrc.bottom - wrc.top,
 		nullptr, nullptr, wc.hInstance, nullptr);
 
-#ifdef _DEBUG
-	ID3D12Debug1* debugController = nullptr;
-	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
-		// デバッグレイヤーを有効化する
-		debugController->EnableDebugLayer();
-		// さらにGPU側でもチェックを行うようにする
-		debugController->SetEnableGPUBasedValidation(TRUE);
-	}
-#endif
 
 
 
@@ -348,6 +342,16 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	assert(SUCCEEDED(hr));
 
+	//Fenceの作成
+	ID3D12Fence* fence = nullptr;
+	uint64_t fenceValue = 0;
+	hr = device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence));
+	assert(SUCCEEDED(hr));
+
+	//FenceのSignalを待つためのイベントを作成する
+	HANDLE fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+	assert(fenceEvent != nullptr);
+	
 
 	ID3D12Resource* swapChainResources[2] = {};
 
@@ -412,31 +416,21 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		{
 
 
-
-
-
-
-
-
-
-
-
-
-
 			// 更新 描画
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 
 			// TransitionBarrier
-			D3D12_RESOURCE_BARRIER barrier{};
 
+
+			D3D12_RESOURCE_BARRIER barrier{}; // これで全体をゼロ初期化
 			barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 			barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
 
+			// Transitionの中身を正しく埋める
 			barrier.Transition.pResource = swapChainResources[backBufferIndex];
 			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
 			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 			barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-
 			commandList->ResourceBarrier(1, &barrier);
 
 			
@@ -458,11 +452,11 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 				nullptr
 			);
 			// RenderTarget → Present
+			
 			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
 			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
 
 			commandList->ResourceBarrier(1, &barrier);
-
 			// コマンド確定
 			hr = commandList->Close();
 			assert(SUCCEEDED(hr));
@@ -470,14 +464,24 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			// GPUへ送信
 			ID3D12CommandList* commandLists[] = { commandList };
 
-			commandQueue->ExecuteCommandLists(
-				1,
-				commandLists
-			);
+			commandQueue->ExecuteCommandLists(1,commandLists);
 
 			// 画面交換
 			swapChain->Present(1, 0);
+			fenceValue++;
+			// GPUがここまでたどり着いたときに、Fenceの値を指定した値に代入するようにSignalを送る
+			commandQueue->Signal(fence, fenceValue);
 
+			
+			// Fenceの値が指定したSignal値にたどり着いているか確認する
+			// GetCompletedValueの初期値はFence作成時に渡した初期値
+			if (fence->GetCompletedValue() < fenceValue)
+			{
+				// 指定したSignalにたどりついていないので、たどり着くまで待つようにイベントを設定する
+				fence->SetEventOnCompletion(fenceValue, fenceEvent);
+				// イベント待つ
+				WaitForSingleObject(fenceEvent, INFINITE);
+			}
 			// 次フレーム用にReset
 			hr = commandAllocator->Reset();
 			assert(SUCCEEDED(hr));
@@ -487,11 +491,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 				nullptr
 			);
 			assert(SUCCEEDED(hr));
-
-
-
-
-
 
 		}
 	}
