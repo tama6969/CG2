@@ -21,7 +21,7 @@ VertexShaderOutput main(VertexShaderInput input)
 {
     VertexShaderOutput output;
     
-    // スライドの通り、mul関数を使って頂点座標に行列を掛け算する
+    //mul関数を使って頂点座標に行列を掛け算する
     output.position = mul(input.position, gTransformationMatrix.WVP);
     
     return output;

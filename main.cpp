@@ -138,7 +138,7 @@ Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Ve
 	return result;
 }
 
-// 逆行列（カメラ用簡易版、またはアフィン変換行列専用の特殊逆行列）
+// 逆行列
 Matrix4x4 Inverse(const Matrix4x4& m) {
 	Matrix4x4 result = MakeIdentity4x4();
 	// 回転部分（左上3x3）の転置
@@ -539,7 +539,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		else
 		{
 			
-			// ==========================================
 			//Transform更新 
 			transform.rotate.y += 0.03f;
 
