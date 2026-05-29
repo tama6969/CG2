@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <cmath> 
 #include <chrono>
 #include <d3d12.h>
 #include <dxgi1_6.h>
@@ -26,10 +27,147 @@ struct Vector4
 {
 	float x, y, z, w;
 };
-
+struct Vector3 {
+	float x, y, z;
+};
 struct Material {
 	Vector4 color;
 };
+struct Matrix4x4 {
+	float m[4][4];
+};
+
+
+struct Transform {
+	Vector3 scale;
+	Vector3 rotate;
+	Vector3 translate;
+};
+
+struct TransformationMatrix {
+	Matrix4x4 WVP;
+};
+
+// 行列の掛け算
+Matrix4x4 MultiplyMatrix4x4(const Matrix4x4& m1, const Matrix4x4& m2) {
+	Matrix4x4 result{};
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 4; j++) {
+			result.m[i][j] = 0.0f;
+			for (int k = 0; k < 4; k++) {
+				result.m[i][j] += m1.m[i][k] * m2.m[k][j];
+			}
+		}
+	}
+	return result;
+}
+
+// 4x4単位行列の作成
+Matrix4x4 MakeIdentity4x4() {
+	Matrix4x4 result{};
+	for (int i = 0; i < 4; i++) {
+		result.m[i][i] = 1.0f;
+	}
+	return result;
+}
+
+// スケール行列の作成
+Matrix4x4 MakeScaleMatrix(const Vector3& scale) {
+	Matrix4x4 result = MakeIdentity4x4();
+	result.m[0][0] = scale.x;
+	result.m[1][1] = scale.y;
+	result.m[2][2] = scale.z;
+	return result;
+}
+
+// X軸回転行列
+Matrix4x4 MakeRotateXMatrix(float radian) {
+	Matrix4x4 result = MakeIdentity4x4();
+	result.m[1][1] = std::cos(radian);
+	result.m[1][2] = -std::sin(radian);
+	result.m[2][1] = std::sin(radian);
+	result.m[2][2] = std::cos(radian);
+	return result;
+}
+
+// Y軸回転行列
+Matrix4x4 MakeRotateYMatrix(float radian) {
+	Matrix4x4 result = MakeIdentity4x4();
+	result.m[0][0] = std::cos(radian);
+	result.m[0][2] = std::sin(radian);
+	result.m[2][0] = -std::sin(radian);
+	result.m[2][2] = std::cos(radian);
+	return result;
+}
+
+// Z軸回転行列
+Matrix4x4 MakeRotateZMatrix(float radian) {
+	Matrix4x4 result = MakeIdentity4x4();
+	result.m[0][0] = std::cos(radian);
+	result.m[0][1] = -std::sin(radian);
+	result.m[1][0] = std::sin(radian);
+	result.m[1][1] = std::cos(radian);
+	return result;
+}
+
+// 平行移動行列の作成
+Matrix4x4 MakeTranslateMatrix(const Vector3& translate) {
+	Matrix4x4 result = MakeIdentity4x4();
+	result.m[3][0] = translate.x;
+	result.m[3][1] = translate.y;
+	result.m[3][2] = translate.z;
+	return result;
+}
+
+// アフィン変換行列の作成
+Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Vector3& translate) {
+	Matrix4x4 scaleMatrix = MakeScaleMatrix(scale);
+
+	Matrix4x4 rotateXMatrix = MakeRotateXMatrix(rotate.x);
+	Matrix4x4 rotateYMatrix = MakeRotateYMatrix(rotate.y);
+	Matrix4x4 rotateZMatrix = MakeRotateZMatrix(rotate.z);
+	// 回転の合成: R = Rx * Ry * Rz
+	Matrix4x4 rotateXYZMatrix = MultiplyMatrix4x4(rotateXMatrix, MultiplyMatrix4x4(rotateYMatrix, rotateZMatrix));
+
+	Matrix4x4 translateMatrix = MakeTranslateMatrix(translate);
+
+	// 行列の合成: SRTの順に掛ける (T * R * S)
+	Matrix4x4 matScaleRotate = MultiplyMatrix4x4(rotateXYZMatrix, scaleMatrix);
+	Matrix4x4 result = MultiplyMatrix4x4(translateMatrix, matScaleRotate);
+
+	return result;
+}
+
+// 逆行列（カメラ用簡易版、またはアフィン変換行列専用の特殊逆行列）
+Matrix4x4 Inverse(const Matrix4x4& m) {
+	Matrix4x4 result = MakeIdentity4x4();
+	// 回転部分（左上3x3）の転置
+	for (int i = 0; i < 3; ++i) {
+		for (int j = 0; j < 3; ++j) {
+			result.m[i][j] = m.m[j][i];
+		}
+	}
+	// 平行移動部分の反転と適用
+	result.m[3][0] = -(m.m[3][0] * result.m[0][0] + m.m[3][1] * result.m[1][0] + m.m[3][2] * result.m[2][0]);
+	result.m[3][1] = -(m.m[3][0] * result.m[0][1] + m.m[3][1] * result.m[1][1] + m.m[3][2] * result.m[2][1]);
+	result.m[3][2] = -(m.m[3][0] * result.m[0][2] + m.m[3][1] * result.m[1][2] + m.m[3][2] * result.m[2][2]);
+	return result;
+}
+
+// 透視投影行列の作成
+Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearClip, float farClip) {
+	Matrix4x4 result{};
+	float h = 1.0f / std::tan(fovY / 2.0f);
+	float w = h / aspect;
+
+	result.m[0][0] = w;
+	result.m[1][1] = h;
+	result.m[2][2] = farClip / (farClip - nearClip);
+	result.m[2][3] = 1.0f;
+	result.m[3][2] = (-nearClip * farClip) / (farClip - nearClip);
+	return result;
+}
+
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 	switch (msg) {
@@ -53,22 +191,13 @@ void Log(const std::string& message) {
 	OutputDebugStringA(message.c_str());
 }
 
-void Log(std::ostream& os, const std::string& message) {
-	os << message << std::endl;
-	OutputDebugStringA(message.c_str());
-}
-
-void Log(const std::wstring& message) {
-	Log(ConvertString(message));
-}
-
 ID3D12Resource* CreateBufferResource(ID3D12Device* device, size_t sizeInBytes) {
 	D3D12_HEAP_PROPERTIES uploadHeapProperties{};
 	uploadHeapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
 
 	D3D12_RESOURCE_DESC resourceDesc{};
 	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-	resourceDesc.Width = sizeInBytes; // 指定されたサイズ
+	resourceDesc.Width = sizeInBytes;
 	resourceDesc.Height = 1;
 	resourceDesc.DepthOrArraySize = 1;
 	resourceDesc.MipLevels = 1;
@@ -96,8 +225,6 @@ IDxcBlob* CompileShader(
 	IDxcCompiler3* dxcCompiler,
 	IDxcIncludeHandler* includeHandler)
 {
-	Log(std::format("Begin CompileShader, path:{}, profile:{}\n", ConvertString(filePath), ConvertString(profile)));
-
 	IDxcBlobEncoding* shaderSource = nullptr;
 	HRESULT hr = dxcUtils->LoadFile(filePath.c_str(), nullptr, &shaderSource);
 	assert(SUCCEEDED(hr));
@@ -131,37 +258,13 @@ IDxcBlob* CompileShader(
 	hr = shaderResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob), nullptr);
 	assert(SUCCEEDED(hr));
 
-	Log(std::format("Compile Succeeded, path:{}, profile:{}\n", ConvertString(filePath), ConvertString(profile)));
 	shaderSource->Release();
 	shaderResult->Release();
 
 	return shaderBlob;
 }
 
-static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) {
-	SYSTEMTIME time;
-	GetLocalTime(&time);
-	wchar_t filePath[MAX_PATH]{};
-	CreateDirectory(L"./Dumps", nullptr);
-
-	StringCchPrintfW(filePath, MAX_PATH, L"./Dumps/%04d%02d%02d_%02d%02d%02d.dmp",
-		time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond);
-
-	HANDLE file = CreateFile(filePath, GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-	DWORD processId = GetCurrentProcessId();
-	DWORD threadId = GetCurrentThreadId();
-
-	MINIDUMP_EXCEPTION_INFORMATION info{};
-	info.ThreadId = threadId;
-	info.ExceptionPointers = exception;
-	info.ClientPointers = TRUE;
-
-	MiniDumpWriteDump(GetCurrentProcess(), processId, file, MiniDumpNormal, &info, nullptr, nullptr);
-	return EXCEPTION_EXECUTE_HANDLER;
-}
-
 int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
-	SetUnhandledExceptionFilter(ExportDump);
 	Log("Hello,DirectX!!\n");
 
 #ifdef _DEBUG
@@ -182,7 +285,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		hr = useAdapter->GetDesc3(&desc);
 		assert(SUCCEEDED(hr));
 		if (!(desc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE)) {
-			Log(std::format("Use Adapter: {}\n", ConvertString(desc.Description)));
 			break;
 		}
 		useAdapter = nullptr;
@@ -190,17 +292,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	ID3D12Device* device = nullptr;
 	D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_12_2, D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_0 };
-	const char* levelStrings[] = { "12.2", "12.1", "12.0" };
-
 	for (int i = 0; i < 3; i++) {
 		hr = D3D12CreateDevice(useAdapter, levels[i], IID_PPV_ARGS(&device));
 		if (SUCCEEDED(hr)) {
-			Log(std::format("FeatureLevel : {}\n", levelStrings[i]));
 			break;
 		}
 	}
 	assert(device != nullptr);
-	Log("Complete create D3D12Device!!\n");
 
 #ifdef _DEBUG
 	ID3D12InfoQueue* infoQueue = nullptr;
@@ -220,7 +318,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		infoQueue->Release();
 	}
 #endif
-	assert(useAdapter != nullptr);
 
 	ID3D12CommandQueue* commandQueue = nullptr;
 	D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
@@ -234,21 +331,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	ID3D12GraphicsCommandList* commandList = nullptr;
 	hr = device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commandAllocator, nullptr, IID_PPV_ARGS(&commandList));
 	assert(SUCCEEDED(hr));
-
-	std::string str0{ "STRING!!" };
-	std::string str1_{ std::to_string(10) };
-	std::filesystem::create_directory("logs");
-
-	auto now = std::chrono::system_clock::now();
-	auto nowSec = std::chrono::time_point_cast<std::chrono::seconds>(now);
-	auto localTime = std::chrono::zoned_time{ std::chrono::current_zone(), nowSec };
-	std::string dateString = std::format("{:%Y%m%d_%H%M%S}", localTime);
-	std::string logFilePath = ("logs/") + dateString + ".log";
-	std::ofstream logStream(logFilePath);
-
-	Log(std::format("str0 = {}", str0));
-	Log(std::format("str1 = {}", str1_));
-	Log(std::format("value = {}", 10));
 
 	WNDCLASS wc{};
 	wc.lpfnWndProc = WindowProc;
@@ -309,11 +391,14 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	IDxcBlob* pixelShaderBlob = CompileShader(L"Object3D.PS.hlsl", L"ps_6_0", g_dxcUtils, g_dxcCompiler, g_includeHandler);
 	assert(pixelShaderBlob != nullptr);
 
-	
-	D3D12_ROOT_PARAMETER rootParameters[1] = {};
+	D3D12_ROOT_PARAMETER rootParameters[2] = {};
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;    // CBVを使う
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
 	rootParameters[0].Descriptor.ShaderRegister = 0;                    // レジスタ番号0(b0)とバインド
+
+	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;    
+	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX; // VertexShaderで使う
+	rootParameters[1].Descriptor.ShaderRegister = 0;                    
 
 	D3D12_ROOT_SIGNATURE_DESC descriptionRootSignature{};
 	descriptionRootSignature.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
@@ -368,8 +453,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(&graphicsPipelineState));
 	assert(SUCCEEDED(hr));
 
-	
-	// 1. 頂点バッファ用リソースの作成
+	// 頂点バッファ用リソースの作成
 	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(Vector4) * 3);
 	assert(vertexResource != nullptr);
 
@@ -385,16 +469,30 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	vertexData[2] = { 0.5f, -0.5f, 0.0f, 1.0f };   // 右下
 	vertexResource->Unmap(0, nullptr);
 
-	
+	// マテリアル用CBufferリソースの作成
 	size_t materialBufferSize = (sizeof(Material) + 255) & ~255;
 	ID3D12Resource* materialResource = CreateBufferResource(device, materialBufferSize);
 	assert(materialResource != nullptr);
 
-	
 	Material* materialData = nullptr;
 	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
 	materialData->color = { 1.0f, 0.0f, 0.0f, 1.0f }; // 赤色
 	materialResource->Unmap(0, nullptr);
+
+	// WVP用CBufferリソースの作成
+	size_t wvpBufferSize = (sizeof(TransformationMatrix) + 255) & ~255;
+	ID3D12Resource* wvpResource = CreateBufferResource(device, wvpBufferSize);
+	assert(wvpResource != nullptr);
+
+	TransformationMatrix* wvpData = nullptr;
+	wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&wvpData));
+
+	//変数の作成
+	Transform transform{
+		{ 1.0f, 1.0f, 1.0f }, // scale
+		{ 0.0f, 0.0f, 0.0f }, // rotate
+		{ 0.0f, 0.0f, 0.0f }  // translate
+	};
 
 	// ビューポート・シザー矩形
 	D3D12_VIEWPORT viewport{};
@@ -440,6 +538,32 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		}
 		else
 		{
+			
+			// ==========================================
+			//Transform更新 
+			transform.rotate.y += 0.03f;
+
+			// 各種行列の作成
+			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+
+			// カメラ用設定
+			Transform cameraTransform{
+				{ 1.0f, 1.0f, 1.0f },
+				{ 0.0f, 0.0f, 0.0f },
+				{ 0.0f, 0.0f, -5.0f }
+			};
+			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
+			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
+
+			// WVPMatrixを作る
+			Matrix4x4 worldViewProjectionMatrix = MultiplyMatrix4x4(worldMatrix, MultiplyMatrix4x4(viewMatrix, projectionMatrix));
+
+			// CBufferの中身を更新する
+			wvpData->WVP = worldViewProjectionMatrix;
+
+
+			// ---- 描画の処理 ----
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 
 			D3D12_RESOURCE_BARRIER barrier{};
@@ -462,8 +586,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->SetGraphicsRootSignature(rootSignature);
 			commandList->SetPipelineState(graphicsPipelineState);
 
-			
-			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
+			// 各CBV（定数バッファ）をコマンドリストに設定
+			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress()); // RootParameter[0]用
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());       // RootParameter[1]用
 
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -499,7 +624,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	CloseHandle(fenceEvent);
 
-	
+	// ループ終了後にUnmapする
+	if (wvpResource)
+	{
+		wvpResource->Unmap(0, nullptr);
+		wvpResource->Release();
+	}
 	if (materialResource)
 	{
 		materialResource->Release();
@@ -556,8 +686,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug))))
 	{
 		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
-		debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
-		debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
 		debug->Release();
 	}
 #endif
