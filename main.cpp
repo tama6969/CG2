@@ -14,11 +14,13 @@
 #include <dxgidebug.h>
 #include <dxcapi.h>	
 
-//ImGui関数の外部宣言
-#include "externals/imgui/imgui.h"                
+// ImGui関数の外部宣言
+#ifdef USE_IMGUI
+#include "externals/imgui/imgui.h"                         
 #include "externals/imgui/imgui_impl_dx12.h"       
 #include "externals/imgui/imgui_impl_win32.h"      
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
 
 #pragma comment(lib,"dxguid.lib")
 #pragma comment(lib,"d3d12.lib")
@@ -186,9 +188,12 @@ ID3D12DescriptorHeap* CreateDescriptorHeap(
 
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+	// ImGuiのメッセージ処理を条件分岐
+#ifdef USE_IMGUI
 	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
 		return true;
 	}
+#endif
 
 	switch (msg) {
 	case WM_DESTROY:
@@ -387,7 +392,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	ID3D12DescriptorHeap* rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
 	ID3D12DescriptorHeap* srvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
 
-	// ImGuiの初期化 
+	// ImGuiの初期化（条件分岐）
+#ifdef USE_IMGUI
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGui::StyleColorsDark();
@@ -400,6 +406,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
 		srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
 	);
+#endif
 
 	ID3D12Fence* fence = nullptr;
 	uint64_t fenceValue = 0;
@@ -569,17 +576,18 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		}
 		else
 		{
-			// ImGuiのフレーム開始処理 
+			// ImGuiのフレーム開始とUI処理（条件分岐）
+#ifdef USE_IMGUI
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
 
-			//開発用UIデモウィンドを表示指示 
+			// 開発用UIデモウィンドを表示指示 
 			ImGui::ShowDemoWindow();
 
-			ImGui::Begin("Window"); 
+			ImGui::Begin("Window");
 
-			//Transform用のUI
+			// Transform用のUI
 			ImGui::SliderFloat3("Scale", &transform.scale.x, 0.0f, 1.0f);
 			ImGui::SliderFloat3("Rotate", &transform.rotate.x, 0.0f, 1.0f);
 			ImGui::SliderFloat3("Translate", &transform.translate.x, 0.0f, 1.0f);
@@ -587,13 +595,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			Material* currentMaterialData = nullptr;
 			materialResource->Map(0, nullptr, reinterpret_cast<void**>(&currentMaterialData));
 
-			// スライダーで色を変更（4要素の配列としてポインタを渡す）
+			// スライダーで色を変更
 			ImGui::ColorEdit4("Color", &currentMaterialData->color.x);
 
 			materialResource->Unmap(0, nullptr);
 
-			ImGui::End(); 
-
+			ImGui::End();
+#endif
 
 			// Transform更新 
 			transform.rotate.y += 0.03f;
@@ -651,7 +659,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			// 3Dモデル（三角形）の描画
 			commandList->DrawInstanced(3, 1, 0, 0);
 
-			//ImGuiの描画コマンド確定と、DescriptorHeapの設定、描画実行 ---
+			// ImGuiの描画コマンド確定と描画実行（条件分岐）
+#ifdef USE_IMGUI
 			ImGui::Render(); // 内部的な描画コマンドの確定
 
 			// ImGuiを描画するためのDescriptorHeapをコマンドリストにセット
@@ -660,6 +669,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 			// 画面へImGuiを描画
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
+#endif
 
 			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
 			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
@@ -731,10 +741,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	fence->Release();
 
-	// 解放処理 ---
+	// ImGuiの解放処理（条件分岐）
+#ifdef USE_IMGUI
 	ImGui_ImplDX12_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
+#endif
 
 	if (srvDescriptorHeap)
 	{
@@ -752,7 +764,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	useAdapter->Release();
 	dxgiFactory->Release();
 
-#ifdef _DEBUG
+#ifdef USE_IMGUI
 	debugController->Release();
 #endif
 
