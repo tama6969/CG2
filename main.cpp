@@ -13,6 +13,13 @@
 #include <strsafe.h>
 #include <dxgidebug.h>
 #include <dxcapi.h>	
+
+//ImGui関数の外部宣言
+#include "externals/imgui/imgui.h"                
+#include "externals/imgui/imgui_impl_dx12.h"       
+#include "externals/imgui/imgui_impl_win32.h"      
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
 #pragma comment(lib,"dxguid.lib")
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
@@ -36,7 +43,6 @@ struct Material {
 struct Matrix4x4 {
 	float m[4][4];
 };
-
 
 struct Transform {
 	Vector3 scale;
@@ -126,14 +132,12 @@ Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Ve
 	Matrix4x4 rotateXMatrix = MakeRotateXMatrix(rotate.x);
 	Matrix4x4 rotateYMatrix = MakeRotateYMatrix(rotate.y);
 	Matrix4x4 rotateZMatrix = MakeRotateZMatrix(rotate.z);
-	// 回転の合成: R = Rx * Ry * Rz
 	Matrix4x4 rotateXYZMatrix = MultiplyMatrix4x4(rotateXMatrix, MultiplyMatrix4x4(rotateYMatrix, rotateZMatrix));
 
 	Matrix4x4 translateMatrix = MakeTranslateMatrix(translate);
 
-	// 行列の合成: SRTの順に掛ける (T * R * S)
-	Matrix4x4 matScaleRotate = MultiplyMatrix4x4(rotateXYZMatrix, scaleMatrix);
-	Matrix4x4 result = MultiplyMatrix4x4(translateMatrix, matScaleRotate);
+	Matrix4x4 matScaleRotate = MultiplyMatrix4x4(scaleMatrix, rotateXYZMatrix);
+	Matrix4x4 result = MultiplyMatrix4x4(matScaleRotate, translateMatrix);
 
 	return result;
 }
@@ -141,13 +145,11 @@ Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Ve
 // 逆行列
 Matrix4x4 Inverse(const Matrix4x4& m) {
 	Matrix4x4 result = MakeIdentity4x4();
-	// 回転部分（左上3x3）の転置
 	for (int i = 0; i < 3; ++i) {
 		for (int j = 0; j < 3; ++j) {
 			result.m[i][j] = m.m[j][i];
 		}
 	}
-	// 平行移動部分の反転と適用
 	result.m[3][0] = -(m.m[3][0] * result.m[0][0] + m.m[3][1] * result.m[1][0] + m.m[3][2] * result.m[2][0]);
 	result.m[3][1] = -(m.m[3][0] * result.m[0][1] + m.m[3][1] * result.m[1][1] + m.m[3][2] * result.m[2][1]);
 	result.m[3][2] = -(m.m[3][0] * result.m[0][2] + m.m[3][1] * result.m[1][2] + m.m[3][2] * result.m[2][2]);
@@ -168,8 +170,26 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspect, float nearClip, flo
 	return result;
 }
 
+// DescriptorHeapの作成関数
+ID3D12DescriptorHeap* CreateDescriptorHeap(
+	ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible)
+{
+	ID3D12DescriptorHeap* descriptorHeap = nullptr;
+	D3D12_DESCRIPTOR_HEAP_DESC descriptorHeapDesc{};
+	descriptorHeapDesc.Type = heapType;
+	descriptorHeapDesc.NumDescriptors = numDescriptors;
+	descriptorHeapDesc.Flags = shaderVisible ? D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	HRESULT hr = device->CreateDescriptorHeap(&descriptorHeapDesc, IID_PPV_ARGS(&descriptorHeap));
+	assert(SUCCEEDED(hr));
+	return descriptorHeap;
+}
+
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
+		return true;
+	}
+
 	switch (msg) {
 	case WM_DESTROY:
 		PostQuitMessage(0);
@@ -363,12 +383,23 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	hr = dxgiFactory->CreateSwapChainForHwnd(commandQueue, hwnd, &swapChainDesc, nullptr, nullptr, reinterpret_cast<IDXGISwapChain1**>(&swapChain));
 	assert(SUCCEEDED(hr));
 
-	ID3D12DescriptorHeap* rtvDescriptorHeap = nullptr;
-	D3D12_DESCRIPTOR_HEAP_DESC rtvDescriptorHeapDesc{};
-	rtvDescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	rtvDescriptorHeapDesc.NumDescriptors = 2;
-	hr = device->CreateDescriptorHeap(&rtvDescriptorHeapDesc, IID_PPV_ARGS(&rtvDescriptorHeap));
-	assert(SUCCEEDED(hr));
+	// 使用関数を使ってDescriptorHeapを生成
+	ID3D12DescriptorHeap* rtvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
+	ID3D12DescriptorHeap* srvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 128, true);
+
+	// ImGuiの初期化 
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGui::StyleColorsDark();
+	ImGui_ImplWin32_Init(hwnd);
+	ImGui_ImplDX12_Init(
+		device,
+		2, // ダブルバッファのため2を設定
+		DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
+		srvDescriptorHeap,
+		srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
+		srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+	);
 
 	ID3D12Fence* fence = nullptr;
 	uint64_t fenceValue = 0;
@@ -392,18 +423,18 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	assert(pixelShaderBlob != nullptr);
 
 	D3D12_ROOT_PARAMETER rootParameters[2] = {};
-	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;    // CBVを使う
-	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
-	rootParameters[0].Descriptor.ShaderRegister = 0;                    // レジスタ番号0(b0)とバインド
+	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[0].Descriptor.ShaderRegister = 0;
 
-	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;    
-	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX; // VertexShaderで使う
-	rootParameters[1].Descriptor.ShaderRegister = 0;                    
+	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	rootParameters[1].Descriptor.ShaderRegister = 0;
 
 	D3D12_ROOT_SIGNATURE_DESC descriptionRootSignature{};
 	descriptionRootSignature.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-	descriptionRootSignature.pParameters = rootParameters;              // ルートパラメータ配列へのポインタ
-	descriptionRootSignature.NumParameters = _countof(rootParameters);  // 配列の長さ
+	descriptionRootSignature.pParameters = rootParameters;
+	descriptionRootSignature.NumParameters = _countof(rootParameters);
 
 	ID3DBlob* signatureBlob = nullptr;
 	ID3DBlob* errorBlob = nullptr;
@@ -538,8 +569,33 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		}
 		else
 		{
-			
-			//Transform更新 
+			// ImGuiのフレーム開始処理 
+			ImGui_ImplDX12_NewFrame();
+			ImGui_ImplWin32_NewFrame();
+			ImGui::NewFrame();
+
+			//開発用UIデモウィンドを表示指示 
+			ImGui::ShowDemoWindow();
+
+			ImGui::Begin("Window"); 
+
+			//Transform用のUI
+			ImGui::SliderFloat3("Scale", &transform.scale.x, 0.0f, 1.0f);
+			ImGui::SliderFloat3("Rotate", &transform.rotate.x, 0.0f, 1.0f);
+			ImGui::SliderFloat3("Translate", &transform.translate.x, 0.0f, 1.0f);
+
+			Material* currentMaterialData = nullptr;
+			materialResource->Map(0, nullptr, reinterpret_cast<void**>(&currentMaterialData));
+
+			// スライダーで色を変更（4要素の配列としてポインタを渡す）
+			ImGui::ColorEdit4("Color", &currentMaterialData->color.x);
+
+			materialResource->Unmap(0, nullptr);
+
+			ImGui::End(); 
+
+
+			// Transform更新 
 			transform.rotate.y += 0.03f;
 
 			// 各種行列の作成
@@ -586,13 +642,24 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->SetPipelineState(graphicsPipelineState);
 
 			// 各CBV（定数バッファ）をコマンドリストに設定
-			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress()); // RootParameter[0]用
-			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());       // RootParameter[1]用
+			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+			// 3Dモデル（三角形）の描画
 			commandList->DrawInstanced(3, 1, 0, 0);
+
+			//ImGuiの描画コマンド確定と、DescriptorHeapの設定、描画実行 ---
+			ImGui::Render(); // 内部的な描画コマンドの確定
+
+			// ImGuiを描画するためのDescriptorHeapをコマンドリストにセット
+			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
+			commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+			// 画面へImGuiを描画
+			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
 			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
 			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
@@ -663,7 +730,18 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	}
 
 	fence->Release();
+
+	// 解放処理 ---
+	ImGui_ImplDX12_Shutdown();
+	ImGui_ImplWin32_Shutdown();
+	ImGui::DestroyContext();
+
+	if (srvDescriptorHeap)
+	{
+		srvDescriptorHeap->Release();
+	}
 	rtvDescriptorHeap->Release();
+
 	swapChainResources[0]->Release();
 	swapChainResources[1]->Release();
 	swapChain->Release();
