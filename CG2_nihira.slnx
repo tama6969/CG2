@@ -7,4 +7,5 @@
     <File Path=".gitignore" />
   </Folder>
   <Project Path="CG2_nihira.vcxproj" Id="31d6d457-405d-4bbc-a934-d5de3e58f919" />
+  <Project Path="externals/DirectXTex/DirectXTex_Desktop_2022_Win10.vcxproj" Id="371b9fa9-4c90-4ac6-a123-aced756d6c77" />
 </Solution>
