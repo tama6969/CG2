@@ -540,9 +540,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	vertexDataSprite[5].texcoord = { 1.0f, 1.0f };
 	vertexResourceSprite->Unmap(0, nullptr);
 
-	// ============================================================
-	// ★ [追加] 球体用メッシュデータの生成とバッファ確保
-	// ============================================================
 	std::vector<VertexData> sphereVertices;
 	std::vector<uint32_t> sphereIndices;
 	const uint32_t kSphereSubdivision = 16;
@@ -580,7 +577,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	Transform sphereTransform{
 		{ 1.0f, 1.0f, 1.0f },
 		{ 0.0f, 0.0f, 0.0f },
-		{ 1.5f, 0.0f, 0.0f } // 重ならないように初期配置をX軸方向に少しずらしています
+		{ 1.5f, 0.0f, 0.0f } 
 	};
 
 	size_t sphereWvpBufferSize = (sizeof(TransformationMatrix) + 255) & ~255;
@@ -803,7 +800,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			commandList->DrawInstanced(6, 1, 0, 0);
 
-			// 2. ★ [追加] 球体オブジェクトを描画
 			commandList->SetGraphicsRootConstantBufferView(1, sphereWvpResource->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &sphereVertexBufferView);
 			commandList->IASetIndexBuffer(&sphereIndexBufferView);
@@ -858,7 +854,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	}
 	CloseHandle(fenceEvent);
 
-	// ★ [追加] 球体用確保リソースの解放
+
 	sphereWvpResource->Unmap(0, nullptr);
 	sphereWvpResource->Release();
 	sphereIndexResource->Release();
