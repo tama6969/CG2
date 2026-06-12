@@ -15,6 +15,7 @@
 #include <dxcapi.h>	
 #include "externals/DirectXTex/DirectXTex.h"
 #include "MatrixMath.h"
+#include "SphereMesh.h"
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"                         
 #include "externals/imgui/imgui_impl_dx12.h"       
@@ -539,6 +540,56 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	vertexDataSprite[5].texcoord = { 1.0f, 1.0f };
 	vertexResourceSprite->Unmap(0, nullptr);
 
+	// ============================================================
+	// ★ [追加] 球体用メッシュデータの生成とバッファ確保
+	// ============================================================
+	std::vector<VertexData> sphereVertices;
+	std::vector<uint32_t> sphereIndices;
+	const uint32_t kSphereSubdivision = 16;
+	GenerateSphereMesh(1.0f, kSphereSubdivision, sphereVertices, sphereIndices);
+
+	// 球体用 頂点バッファ
+	ID3D12Resource* sphereVertexResource = CreateBufferResource(device, sizeof(VertexData) * sphereVertices.size());
+	assert(sphereVertexResource != nullptr);
+
+	D3D12_VERTEX_BUFFER_VIEW sphereVertexBufferView{};
+	sphereVertexBufferView.BufferLocation = sphereVertexResource->GetGPUVirtualAddress();
+	sphereVertexBufferView.SizeInBytes = UINT(sizeof(VertexData) * sphereVertices.size());
+	sphereVertexBufferView.StrideInBytes = sizeof(VertexData);
+
+	VertexData* sphereVertexData = nullptr;
+	sphereVertexResource->Map(0, nullptr, reinterpret_cast<void**>(&sphereVertexData));
+	std::memcpy(sphereVertexData, sphereVertices.data(), sizeof(VertexData) * sphereVertices.size());
+	sphereVertexResource->Unmap(0, nullptr);
+
+	// 球体用 インデックスバッファ
+	ID3D12Resource* sphereIndexResource = CreateBufferResource(device, sizeof(uint32_t) * sphereIndices.size());
+	assert(sphereIndexResource != nullptr);
+
+	D3D12_INDEX_BUFFER_VIEW sphereIndexBufferView{};
+	sphereIndexBufferView.BufferLocation = sphereIndexResource->GetGPUVirtualAddress();
+	sphereIndexBufferView.SizeInBytes = UINT(sizeof(uint32_t) * sphereIndices.size());
+	sphereIndexBufferView.Format = DXGI_FORMAT_R32_UINT;
+
+	uint32_t* sphereIndexData = nullptr;
+	sphereIndexResource->Map(0, nullptr, reinterpret_cast<void**>(&sphereIndexData));
+	std::memcpy(sphereIndexData, sphereIndices.data(), sizeof(uint32_t) * sphereIndices.size());
+	sphereIndexResource->Unmap(0, nullptr);
+
+	// 球体用の位置情報(Transform)とCBuffer(WVP行列用)
+	Transform sphereTransform{
+		{ 1.0f, 1.0f, 1.0f },
+		{ 0.0f, 0.0f, 0.0f },
+		{ 1.5f, 0.0f, 0.0f } // 重ならないように初期配置をX軸方向に少しずらしています
+	};
+
+	size_t sphereWvpBufferSize = (sizeof(TransformationMatrix) + 255) & ~255;
+	ID3D12Resource* sphereWvpResource = CreateBufferResource(device, sphereWvpBufferSize);
+	assert(sphereWvpResource != nullptr);
+
+	TransformationMatrix* sphereWvpData = nullptr;
+	sphereWvpResource->Map(0, nullptr, reinterpret_cast<void**>(&sphereWvpData));
+
 	ID3D12Resource* depthStencilResource = CreateDepthStencilTextureResource(device, kClientWidth, kClientHeight);
 	assert(depthStencilResource != nullptr);
 	ID3D12DescriptorHeap* dsvDescriptorHeap = CreateDescriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
@@ -678,6 +729,15 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			ImGui::SliderFloat3("Sprite Scale", &transformSprite.scale.x, 0.0f, 5.0f);
 			ImGui::SliderFloat("Sprite Rotate Z", &transformSprite.rotate.z, -3.1415f, 3.1415f);
 			ImGui::SliderFloat2("Sprite Translate", &transformSprite.translate.x, 0.0f, 1280.0f);
+
+			ImGui::Separator();
+			ImGui::Text("Sphere Transform");
+			ImGui::SliderFloat("Sphere Radius", &sphereTransform.scale.x, 0.1f, 3.0f);
+			sphereTransform.scale.y = sphereTransform.scale.x; // 均等スケール
+			sphereTransform.scale.z = sphereTransform.scale.x;
+			ImGui::SliderFloat3("Sphere Rotate", &sphereTransform.rotate.x, 0.0f, 6.28f);
+			ImGui::SliderFloat3("Sphere Translate", &sphereTransform.translate.x, -5.0f, 5.0f);
+
 			Material* currentMaterialData = nullptr;
 			materialResource->Map(0, nullptr, reinterpret_cast<void**>(&currentMaterialData));
 			ImGui::ColorEdit4("Color", &currentMaterialData->color.x);
@@ -697,6 +757,10 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
 			Matrix4x4 worldViewProjectionMatrix = MultiplyMatrix4x4(worldMatrix, MultiplyMatrix4x4(viewMatrix, projectionMatrix));
 			wvpData->WVP = worldViewProjectionMatrix;
+
+			Matrix4x4 sphereWorldMatrix = MakeAffineMatrix(sphereTransform.scale, sphereTransform.rotate, sphereTransform.translate);
+			Matrix4x4 sphereWvpMatrix = MultiplyMatrix4x4(sphereWorldMatrix, MultiplyMatrix4x4(viewMatrix, projectionMatrix));
+			sphereWvpData->WVP = sphereWvpMatrix;
 
 			Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
 			Matrix4x4 viewMatrixSprite = MakeIdentity4x4(); // Spriteはカメラの影響を受けないため単位行列
@@ -732,14 +796,26 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
+
+			// 1. 既存の3Dオブジェクト(三角形)を描画
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			commandList->DrawInstanced(6, 1, 0, 0);
+
+			// 2. ★ [追加] 球体オブジェクトを描画
+			commandList->SetGraphicsRootConstantBufferView(1, sphereWvpResource->GetGPUVirtualAddress());
+			commandList->IASetVertexBuffers(0, 1, &sphereVertexBufferView);
+			commandList->IASetIndexBuffer(&sphereIndexBufferView);
+			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			commandList->DrawIndexedInstanced(UINT(sphereIndices.size()), 1, 0, 0, 0);
+
+			// 3. 既存のスプライトを描画
 			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			commandList->DrawInstanced(6, 1, 0, 0); 
+			commandList->DrawInstanced(6, 1, 0, 0);
+
 #ifdef USE_IMGUI
 			ImGui::Render();
 			commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
@@ -781,6 +857,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		WaitForSingleObject(fenceEvent, INFINITE);
 	}
 	CloseHandle(fenceEvent);
+
+	// ★ [追加] 球体用確保リソースの解放
+	sphereWvpResource->Unmap(0, nullptr);
+	sphereWvpResource->Release();
+	sphereIndexResource->Release();
+	sphereVertexResource->Release();
+
 	transformationMatrixResourceSprite->Unmap(0, nullptr);
 	transformationMatrixResourceSprite->Release();
 	vertexResourceSprite->Release();
