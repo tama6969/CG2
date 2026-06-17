@@ -78,7 +78,7 @@ Matrix4x4 MakeAffineMatrix(const Vector3& scale, const Vector3& rotate, const Ve
 	Matrix4x4 rotateXMatrix = MakeRotateXMatrix(rotate.x);
 	Matrix4x4 rotateYMatrix = MakeRotateYMatrix(rotate.y);
 	Matrix4x4 rotateZMatrix = MakeRotateZMatrix(rotate.z);
-	Matrix4x4 rotateXYZMatrix = MultiplyMatrix4x4(rotateXMatrix, MultiplyMatrix4x4(rotateYMatrix, rotateZMatrix));
+	Matrix4x4 rotateXYZMatrix = MultiplyMatrix4x4(rotateZMatrix, MultiplyMatrix4x4(rotateYMatrix, rotateXMatrix));
 
 	Matrix4x4 translateMatrix = MakeTranslateMatrix(translate);
 

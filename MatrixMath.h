@@ -32,7 +32,7 @@ struct TransformationMatrix {
 	Matrix4x4 WVP;
 };
 
-// 関数の宣言（シグネチャ）
+// 関数の宣言
 Matrix4x4 MultiplyMatrix4x4(const Matrix4x4& m1, const Matrix4x4& m2);
 Matrix4x4 MakeIdentity4x4();
 Matrix4x4 MakeScaleMatrix(const Vector3& scale);

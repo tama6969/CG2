@@ -60,6 +60,21 @@ void Log(const std::string& message) {
 	OutputDebugStringA(message.c_str());
 }
 
+// ハンドル取得用関数群
+D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index)
+{
+	D3D12_CPU_DESCRIPTOR_HANDLE handleCPU = descriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	handleCPU.ptr += (descriptorSize * index);
+	return handleCPU;
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index)
+{
+	D3D12_GPU_DESCRIPTOR_HANDLE handleGPU = descriptorHeap->GetGPUDescriptorHandleForHeapStart();
+	handleGPU.ptr += (descriptorSize * index);
+	return handleGPU;
+}
+
 // DescriptorHeapの作成関数
 ID3D12DescriptorHeap* CreateDescriptorHeap(
 	ID3D12Device* device, D3D12_DESCRIPTOR_HEAP_TYPE heapType, UINT numDescriptors, bool shaderVisible)
@@ -310,6 +325,11 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	}
 #endif
 
+	// DescriptorSizeの取得
+	const uint32_t descriptorSizeSRV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	const uint32_t descriptorSizeRTV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	const uint32_t descriptorSizeDSV = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+
 	ID3D12CommandQueue* commandQueue = nullptr;
 	D3D12_COMMAND_QUEUE_DESC commandQueueDesc{};
 	hr = device->CreateCommandQueue(&commandQueueDesc, IID_PPV_ARGS(&commandQueue));
@@ -367,8 +387,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		2,
 		DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
 		srvDescriptorHeap,
-		srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
-		srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()
+		GetCPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 0),
+		GetGPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 0)
 	);
 #endif
 
@@ -540,6 +560,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	vertexDataSprite[5].texcoord = { 1.0f, 1.0f };
 	vertexResourceSprite->Unmap(0, nullptr);
 
+	// 球体用メッシュデータの生成とバッファ確保
 	std::vector<VertexData> sphereVertices;
 	std::vector<uint32_t> sphereIndices;
 	const uint32_t kSphereSubdivision = 16;
@@ -577,7 +598,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	Transform sphereTransform{
 		{ 1.0f, 1.0f, 1.0f },
 		{ 0.0f, 0.0f, 0.0f },
-		{ 1.5f, 0.0f, 0.0f } 
+		{ 1.5f, 0.0f, 0.0f }
 	};
 
 	size_t sphereWvpBufferSize = (sizeof(TransformationMatrix) + 255) & ~255;
@@ -596,7 +617,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
 
-	device->CreateDepthStencilView(depthStencilResource, &dsvDesc, dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	device->CreateDepthStencilView(depthStencilResource, &dsvDesc, GetCPUDescriptorHandle(dsvDescriptorHeap, descriptorSizeDSV, 0));
 
 	ID3D12Resource* indexResource = CreateBufferResource(device, sizeof(uint32_t) * 6);
 	assert(indexResource != nullptr);
@@ -634,14 +655,14 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	Matrix4x4* transformationMatrixDataSprite = nullptr;
 	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
-	*transformationMatrixDataSprite = MakeIdentity4x4(); // 単位行列を書き込んでおく
+	*transformationMatrixDataSprite = MakeIdentity4x4();
 
 	Transform transformSprite{
 		{ 1.0f, 1.0f, 1.0f },
 		{ 0.0f, 0.0f, 0.0f },
 		{ 0.0f, 0.0f, 0.0f }
 	};
-
+// 1枚目のテクスチャ読み込みとSRV生成 (index = 1)
 	DirectX::ScratchImage mipImages = LoadTexture("resources/uvChecker.png");
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
 	ID3D12Resource* textureResource = CreateTextureResource(device, metadata);
@@ -653,14 +674,24 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
 
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
-
-	UINT srvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-	textureSrvHandleCPU.ptr += srvDescriptorSize;
-	textureSrvHandleGPU.ptr += srvDescriptorSize;
-
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 1);
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 1);
 	device->CreateShaderResourceView(textureResource, &srvDesc, textureSrvHandleCPU);
+
+	DirectX::ScratchImage mipImages2 = LoadTexture("resources/monsterBall.png");
+	const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
+	ID3D12Resource* textureResource2 = CreateTextureResource(device, metadata2);
+	UploadTextureData(textureResource2, mipImages2);
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2{};
+	srvDesc2.Format = metadata2.format;
+	srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc2.Texture2D.MipLevels = UINT(metadata.mipLevels);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 = GetCPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 2);
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = GetGPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 2);
+	device->CreateShaderResourceView(textureResource2, &srvDesc2, textureSrvHandleCPU2);
 
 	Transform transform{
 		{ 1.0f, 1.0f, 1.0f },
@@ -693,13 +724,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	rtvDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 
 	D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[2];
-	rtvHandles[0] = rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	UINT descriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	rtvHandles[1].ptr = rtvHandles[0].ptr + descriptorSize;
+	rtvHandles[0] = GetCPUDescriptorHandle(rtvDescriptorHeap, descriptorSizeRTV, 0);
+	rtvHandles[1] = GetCPUDescriptorHandle(rtvDescriptorHeap, descriptorSizeRTV, 1);
 
 	device->CreateRenderTargetView(swapChainResources[0], &rtvDesc, rtvHandles[0]);
 	device->CreateRenderTargetView(swapChainResources[1], &rtvDesc, rtvHandles[1]);
-
+	bool useMonsterBall = true;
 	MSG msg{};
 
 	while (msg.message != WM_QUIT)
@@ -720,7 +750,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			ImGui::SliderFloat3("Scale", &transform.scale.x, 0.0f, 1.0f);
 			ImGui::SliderFloat3("Rotate", &transform.rotate.x, 0.0f, 1.0f);
 			ImGui::SliderFloat3("Translate", &transform.translate.x, 0.0f, 1.0f);
-			ImGui::Separator(); // 区切り線
+			ImGui::Separator();
 			ImGui::Text("Sprite Transform");
 
 			ImGui::SliderFloat3("Sprite Scale", &transformSprite.scale.x, 0.0f, 5.0f);
@@ -730,11 +760,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			ImGui::Separator();
 			ImGui::Text("Sphere Transform");
 			ImGui::SliderFloat("Sphere Radius", &sphereTransform.scale.x, 0.1f, 3.0f);
-			sphereTransform.scale.y = sphereTransform.scale.x; // 均等スケール
+			sphereTransform.scale.y = sphereTransform.scale.x;
 			sphereTransform.scale.z = sphereTransform.scale.x;
 			ImGui::SliderFloat3("Sphere Rotate", &sphereTransform.rotate.x, 0.0f, 6.28f);
 			ImGui::SliderFloat3("Sphere Translate", &sphereTransform.translate.x, -5.0f, 5.0f);
 
+			ImGui::Checkbox("useMonsterBall", &useMonsterBall);
 			Material* currentMaterialData = nullptr;
 			materialResource->Map(0, nullptr, reinterpret_cast<void**>(&currentMaterialData));
 			ImGui::ColorEdit4("Color", &currentMaterialData->color.x);
@@ -755,12 +786,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			Matrix4x4 worldViewProjectionMatrix = MultiplyMatrix4x4(worldMatrix, MultiplyMatrix4x4(viewMatrix, projectionMatrix));
 			wvpData->WVP = worldViewProjectionMatrix;
 
+			// 球体の行列更新
 			Matrix4x4 sphereWorldMatrix = MakeAffineMatrix(sphereTransform.scale, sphereTransform.rotate, sphereTransform.translate);
 			Matrix4x4 sphereWvpMatrix = MultiplyMatrix4x4(sphereWorldMatrix, MultiplyMatrix4x4(viewMatrix, projectionMatrix));
 			sphereWvpData->WVP = sphereWvpMatrix;
 
 			Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
-			Matrix4x4 viewMatrixSprite = MakeIdentity4x4(); // Spriteはカメラの影響を受けないため単位行列
+			Matrix4x4 viewMatrixSprite = MakeIdentity4x4();
 			Matrix4x4 orthographicMatrixSprite = MakeOrthographicMatrix(0.0f, 0.0f, float(kClientWidth), float(kClientHeight), 0.0f, 100.0f);
 			Matrix4x4 wvpMatrixSprite = MultiplyMatrix4x4(worldMatrixSprite, MultiplyMatrix4x4(viewMatrixSprite, orthographicMatrixSprite));
 			*transformationMatrixDataSprite = wvpMatrixSprite;
@@ -775,7 +807,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 			barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
 			commandList->ResourceBarrier(1, &barrier);
-			D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+
+			D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle = GetCPUDescriptorHandle(dsvDescriptorHeap, descriptorSizeDSV, 0);
 			commandList->OMSetRenderTargets(1, &rtvHandles[backBufferIndex], FALSE, &dsvHandle);
 
 			// カラーバッファのクリア
@@ -788,25 +821,32 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->SetGraphicsRootSignature(rootSignature);
 			commandList->SetPipelineState(graphicsPipelineState);
 
-			// 共通ディスクリプタヒープ・テクスチャの設定
+			// 共通記述ヒープの設定
 			ID3D12DescriptorHeap* descriptorHeaps[] = { srvDescriptorHeap };
 			commandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 
-			// 1. 既存の3Dオブジェクト(三角形)を描画
+			// 既存の3Dオブジェクトを描画 
+			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
+			//commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU2);
+
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			commandList->DrawInstanced(6, 1, 0, 0);
 
+			//  球体オブジェクトを描画
+			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
+			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU2);
+			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 			commandList->SetGraphicsRootConstantBufferView(1, sphereWvpResource->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &sphereVertexBufferView);
 			commandList->IASetIndexBuffer(&sphereIndexBufferView);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			commandList->DrawIndexedInstanced(UINT(sphereIndices.size()), 1, 0, 0, 0);
 
-			// 3. 既存のスプライトを描画
+			//  既存のスプライトを描画 1枚目のテクスチャに戻して描画]
+			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -854,7 +894,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	}
 	CloseHandle(fenceEvent);
 
-
+	// 球体用解放
 	sphereWvpResource->Unmap(0, nullptr);
 	sphereWvpResource->Release();
 	sphereIndexResource->Release();
@@ -870,7 +910,10 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	vertexResource->Release();
 	depthStencilResource->Release();
 	dsvDescriptorHeap->Release();
+
+	textureResource2->Release();
 	textureResource->Release();
+
 	graphicsPipelineState->Release();
 	signatureBlob->Release();
 	rootSignature->Release();
