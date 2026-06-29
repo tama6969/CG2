@@ -5,8 +5,8 @@
 #include "MatrixMath.h"
 struct Sphere
 {
-    Vector3 center; 
-    float radius;   
+    Vector3 center;
+    float radius;
 };
 
 void GenerateSphereMesh(

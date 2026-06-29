@@ -14,9 +14,18 @@ struct Vector2 {
 struct VertexData {
 	Vector4 position;
 	Vector2 texcoord;
+	Vector3 normal;
+
 };
 struct Material {
 	Vector4 color;
+	int32_t enableLighting;
+};
+
+struct DirectionalLight {
+	Vector4 color;
+	Vector3 direction;
+	float intensity;
 };
 struct Matrix4x4 {
 	float m[4][4];
@@ -30,6 +39,7 @@ struct Transform {
 
 struct TransformationMatrix {
 	Matrix4x4 WVP;
+	Matrix4x4 World;
 };
 
 // 関数の宣言
