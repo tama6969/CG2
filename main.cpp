@@ -529,56 +529,75 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	VertexData* vertexData = nullptr;
 	vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
-	// 1枚目の三角形 
-	vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f }; // 左下
+
+	// 3D三角形用の頂点データ
+	vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f };
 	vertexData[0].texcoord = { 0.0f, 1.0f };
-	vertexData[1].position = { 0.0f,  0.5f, 0.0f, 1.0f }; // 上
+
+	vertexData[1].position = { 0.0f,  0.5f, 0.0f, 1.0f };
 	vertexData[1].texcoord = { 0.5f, 0.0f };
-	vertexData[2].position = { 0.5f, -0.5f, 0.0f, 1.0f }; // 右下
+
+	vertexData[2].position = { 0.5f, -0.5f, 0.0f, 1.0f };
 	vertexData[2].texcoord = { 1.0f, 1.0f };
-	// 2枚目の三角形 
-	vertexData[3].position = { -0.5f, -0.5f,  0.5f, 1.0f };
-	vertexData[3].texcoord = { 0.0f,  1.0f };
-	vertexData[4].position = { 0.0f,  0.0f,  0.0f, 1.0f };
-	vertexData[4].texcoord = { 0.5f,  0.0f };
+
+	vertexData[3].position = { -0.5f, -0.5f, 0.5f, 1.0f };
+	vertexData[3].texcoord = { 0.0f, 1.0f };
+
+	vertexData[4].position = { 0.0f,  0.0f, 0.0f, 1.0f };
+	vertexData[4].texcoord = { 0.5f, 0.0f };
+
 	vertexData[5].position = { 0.5f, -0.5f, -0.5f, 1.0f };
-	vertexData[5].texcoord = { 1.0f,  1.0f };
+	vertexData[5].texcoord = { 1.0f, 1.0f };
 
 	for (uint32_t i = 0; i < 6; ++i) {
 		vertexData[i].normal = { 0.0f, 0.0f, -1.0f };
 	}
 	vertexResource->Unmap(0, nullptr);
 
-	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 6);
+	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 4);
 	assert(vertexResourceSprite != nullptr);
 
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite{};
 	vertexBufferViewSprite.BufferLocation = vertexResourceSprite->GetGPUVirtualAddress();
-	vertexBufferViewSprite.SizeInBytes = sizeof(VertexData) * 6;
+	vertexBufferViewSprite.SizeInBytes = sizeof(VertexData) * 4;
 	vertexBufferViewSprite.StrideInBytes = sizeof(VertexData);
 
 	VertexData* vertexDataSprite = nullptr;
 	vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
-	// 1枚目の三角形
-	vertexDataSprite[0].position = { 0.0f, 360.0f, 0.0f, 1.0f }; // 左下
+	// 2つの三角形
+	vertexDataSprite[0].position = { 0.0f,   360.0f, 0.0f, 1.0f };
 	vertexDataSprite[0].texcoord = { 0.0f, 1.0f };
-	vertexDataSprite[1].position = { 0.0f, 0.0f, 0.0f, 1.0f };   // 左上
-	vertexDataSprite[1].texcoord = { 0.0f, 0.0f };
-	vertexDataSprite[2].position = { 640.0f, 360.0f, 0.0f, 1.0f }; // 右下
-	vertexDataSprite[2].texcoord = { 1.0f, 1.0f };
-	// 2枚目の三角形
-	vertexDataSprite[3].position = { 0.0f, 0.0f, 0.0f, 1.0f };   // 左上
-	vertexDataSprite[3].texcoord = { 0.0f, 0.0f };
-	vertexDataSprite[4].position = { 640.0f, 0.0f, 0.0f, 1.0f };  // 右上
-	vertexDataSprite[4].texcoord = { 1.0f, 0.0f };
-	vertexDataSprite[5].position = { 640.0f, 360.0f, 0.0f, 1.0f }; // 右下
-	vertexDataSprite[5].texcoord = { 1.0f, 1.0f };
 
-	for (uint32_t i = 0; i < 6; ++i) {
+	vertexDataSprite[1].position = { 0.0f,   0.0f,   0.0f, 1.0f };
+	vertexDataSprite[1].texcoord = { 0.0f, 0.0f };
+
+	vertexDataSprite[2].position = { 640.0f, 360.0f, 0.0f, 1.0f };
+	vertexDataSprite[2].texcoord = { 1.0f, 1.0f };
+
+	vertexDataSprite[3].position = { 640.0f, 0.0f,   0.0f, 1.0f };
+	vertexDataSprite[3].texcoord = { 1.0f, 0.0f };
+
+	for (uint32_t i = 0; i < 4; ++i) {
 		vertexDataSprite[i].normal = { 0.0f, 0.0f, -1.0f };
 	}
 	vertexResourceSprite->Unmap(0, nullptr);
+	ID3D12Resource* indexResourceSprite = CreateBufferResource(device, sizeof(uint32_t) * 6);
+	assert(indexResourceSprite != nullptr);
 
+	D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{};
+	indexBufferViewSprite.BufferLocation = indexResourceSprite->GetGPUVirtualAddress();
+	indexBufferViewSprite.SizeInBytes = sizeof(uint32_t) * 6;
+	indexBufferViewSprite.Format = DXGI_FORMAT_R32_UINT;
+
+	uint32_t* indexDataSprite = nullptr;
+	indexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&indexDataSprite));
+	indexDataSprite[0] = 0;
+	indexDataSprite[1] = 1;
+	indexDataSprite[2] = 2;
+	indexDataSprite[3] = 1;
+	indexDataSprite[4] = 3;
+	indexDataSprite[5] = 2;
+	indexResourceSprite->Unmap(0, nullptr);
 	// 球体用メッシュデータの生成とバッファ確保
 	std::vector<VertexData> sphereVertices;
 	std::vector<uint32_t> sphereIndices;
@@ -892,13 +911,14 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
 
-			// 既存の3Dオブジェクトを描画 
+			// 3D三角形を描画
+			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
-
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
+			commandList->IASetIndexBuffer(&indexBufferView);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			commandList->DrawInstanced(6, 1, 0, 0);
+			commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
 			//  球体オブジェクトを描画
 			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
@@ -912,8 +932,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
+			commandList->IASetIndexBuffer(&indexBufferViewSprite);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			commandList->DrawInstanced(6, 1, 0, 0);
+			commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
 #ifdef USE_IMGUI
 			ImGui::Render();
@@ -965,6 +986,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	transformationMatrixResourceSprite->Unmap(0, nullptr);
 	transformationMatrixResourceSprite->Release();
+	indexResourceSprite->Release();
 	vertexResourceSprite->Release();
 	wvpResource->Unmap(0, nullptr);
 	wvpResource->Release();
