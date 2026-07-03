@@ -680,6 +680,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
 	materialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	materialData->enableLighting = true;
+	materialData->uvTransform = MakeIdentity4x4();
 	materialResource->Unmap(0, nullptr);
 
 	size_t materialSpriteBufferSize = (sizeof(Material) + 255) & ~255;
@@ -690,6 +691,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	materialResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite));
 	materialDataSprite->color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	materialDataSprite->enableLighting = false;
+	materialDataSprite->uvTransform = MakeIdentity4x4();
 	materialResourceSprite->Unmap(0, nullptr);
 
 	// 平行光源用CBufferリソースの作成
@@ -720,6 +722,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	transformationMatrixDataSprite->World = MakeIdentity4x4();
 
 	Transform transformSprite{
+		{ 1.0f, 1.0f, 1.0f },
+		{ 0.0f, 0.0f, 0.0f },
+		{ 0.0f, 0.0f, 0.0f }
+	};
+
+	// SpriteのUVTransform用パラメータ
+	Transform uvTransformSprite{
 		{ 1.0f, 1.0f, 1.0f },
 		{ 0.0f, 0.0f, 0.0f },
 		{ 0.0f, 0.0f, 0.0f }
@@ -820,6 +829,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			ImGui::SliderFloat2("Sprite Translate", &transformSprite.translate.x, 0.0f, 1280.0f);
 
 			ImGui::Separator();
+			ImGui::Text("Sprite UV Transform");
+			ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f, -10.0f, 10.0f);
+			ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f, 10.0f);
+			ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
+
+			ImGui::Separator();
 			ImGui::Text("Sphere Transform");
 			ImGui::SliderFloat("Sphere Radius", &sphereTransform.scale.x, 0.1f, 3.0f);
 			sphereTransform.scale.y = sphereTransform.scale.x;
@@ -880,6 +895,15 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			Matrix4x4 wvpMatrixSprite = MultiplyMatrix4x4(worldMatrixSprite, MultiplyMatrix4x4(viewMatrixSprite, orthographicMatrixSprite));
 			transformationMatrixDataSprite->WVP = wvpMatrixSprite;
 			transformationMatrixDataSprite->World = worldMatrixSprite;
+
+			// SpriteのUVTransform行列を作成してMaterialへ反映
+			Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransformSprite.scale);
+			uvTransformMatrix = MultiplyMatrix4x4(uvTransformMatrix, MakeRotateZMatrix(uvTransformSprite.rotate.z));
+			uvTransformMatrix = MultiplyMatrix4x4(uvTransformMatrix, MakeTranslateMatrix(uvTransformSprite.translate));
+			Material* currentMaterialDataSprite = nullptr;
+			materialResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&currentMaterialDataSprite));
+			currentMaterialDataSprite->uvTransform = uvTransformMatrix;
+			materialResourceSprite->Unmap(0, nullptr);
 
 			// ---- 描画の処理 ----
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
@@ -1024,7 +1048,6 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	device->Release();
 	useAdapter->Release();
 	dxgiFactory->Release();
-
 #ifdef _DEBUG
 	if (debugController) {
 		debugController->Release();

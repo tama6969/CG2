@@ -17,18 +17,23 @@ struct VertexData {
 	Vector3 normal;
 
 };
+struct Matrix4x4 {
+	float m[4][4];
+};
+struct Matrix3x3 {
+	float m[3][3];
+};
 struct Material {
 	Vector4 color;
 	int32_t enableLighting;
+	float padding[3];
+	Matrix4x4 uvTransform;
 };
 
 struct DirectionalLight {
 	Vector4 color;
 	Vector3 direction;
 	float intensity;
-};
-struct Matrix4x4 {
-	float m[4][4];
 };
 
 struct Transform {
