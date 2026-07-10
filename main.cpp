@@ -4,9 +4,11 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <sstream>
 #include <cmath> 
 #include <chrono>
 #include <cstring>
+#include <vector>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <cassert>
@@ -34,6 +36,16 @@ IDxcUtils* g_dxcUtils = nullptr;
 IDxcCompiler3* g_dxcCompiler = nullptr;
 IDxcIncludeHandler* g_includeHandler = nullptr;
 
+struct MaterialData {
+	std::string textureFilePath;
+};
+
+struct ModelData {
+	std::vector<VertexData> vertices;
+	MaterialData material;
+};
+
+
 std::string ConvertString(const std::wstring& str) {
 	if (str.empty()) return {};
 	int size = WideCharToMultiByte(CP_UTF8, 0, str.data(), -1, nullptr, 0, nullptr, nullptr);
@@ -59,6 +71,129 @@ std::wstring ConvertString(const std::string& str) {
 
 void Log(const std::string& message) {
 	OutputDebugStringA(message.c_str());
+}
+// mtlファイルを読む関数
+MaterialData LoadMaterialTemplateFile(
+	const std::string& directoryPath,
+	const std::string& filename) {
+
+	MaterialData materialData; // 構築するMaterialData
+	std::string line;          // ファイルから読んだ1行を格納する
+
+	// mtlファイルを開く
+	std::ifstream file(directoryPath + "/" + filename);
+	assert(file.is_open());
+
+	// ファイルを1行ずつ読む
+	while (std::getline(file, line)) {
+		std::string identifier;
+		std::istringstream s(line);
+		s >> identifier;
+
+		// map_Kdにはテクスチャのファイル名が書かれている
+		if (identifier == "map_Kd") {
+			std::string textureFilename;
+			s >> textureFilename;
+
+			// ディレクトリ名とファイル名を連結してパスにする
+			materialData.textureFilePath =
+				directoryPath + "/" + textureFilename;
+		}
+	}
+
+	return materialData;
+}
+
+//objファイルの読む関数
+ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename) {
+
+	ModelData modelData; // 構築するModelData
+	std::vector<Vector4> positions;
+	std::vector<Vector3> normals;
+	std::vector<Vector2> texcoords;
+	std::string line;
+
+	// ファイルを開く
+	std::ifstream file(directoryPath + "/" + filename);
+	assert(file.is_open()); // 開けなかったら止める
+
+	while (std::getline(file, line)) {
+		std::string identifier;
+		std::istringstream s(line);
+		s >> identifier; // 先頭の識別子を読む
+
+		if (identifier == "v") { // 頂点座標
+			Vector4 position;
+			s >> position.x >> position.y >> position.z;
+			position.w = 1.0f;
+
+			// 右手系から左手系に変換するため、xを反転
+			position.x *= -1.0f;
+
+			positions.push_back(position);
+		}
+		else if (identifier == "vt") { // テクスチャ座標
+			Vector2 texcoord;
+			s >> texcoord.x >> texcoord.y;
+
+			// OBJは左下原点、DirectX側は左上原点なのでY座標を反転
+			texcoord.y = 1.0f - texcoord.y;
+
+			texcoords.push_back(texcoord);
+		}
+		else if (identifier == "vn") { // 法線ベクトル
+			Vector3 normal;
+			s >> normal.x >> normal.y >> normal.z;
+
+			// 法線もxを反転
+			normal.x *= -1.0f;
+
+			normals.push_back(normal);
+		}
+		else if (identifier == "mtllib") {
+			// materialTemplateLibraryファイルの名前を取得する
+			std::string materialFilename;
+			s >> materialFilename;
+
+			// OBJファイルと同じディレクトリにあるMTLファイルを読む
+			modelData.material =
+				LoadMaterialTemplateFile(directoryPath, materialFilename);
+		}
+		else if (identifier == "f") { // 面情報
+
+			VertexData triangle[3];
+
+			// 面は三角形限定
+			for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
+				std::string vertexDefinition;
+				s >> vertexDefinition;
+
+				// 頂点要素を分割しIndexを取得する
+				std::istringstream v(vertexDefinition);
+				uint32_t elementIndices[3];
+
+				for (int32_t element = 0; element < 3; ++element) {
+					std::string index;
+					std::getline(v, index, '/');
+					elementIndices[element] = std::stoi(index);
+				}
+
+				// 要素Indexから実際の要素の値を取得して頂点を構築
+				Vector4 position = positions[elementIndices[0] - 1];
+				Vector2 texcoord = texcoords[elementIndices[1] - 1];
+				Vector3 normal = normals[elementIndices[2] - 1];
+
+				triangle[faceVertex] = { position, texcoord, normal };
+			}
+
+			// 頂点を逆順で登録することで、回り順を逆にする
+			modelData.vertices.push_back(triangle[2]);
+			modelData.vertices.push_back(triangle[1]);
+			modelData.vertices.push_back(triangle[0]);
+		}
+	}
+
+	return modelData;
 }
 
 // ハンドル取得用関数群
@@ -519,39 +654,19 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	assert(SUCCEEDED(hr));
 
 	// 3Dオブジェクト用 頂点バッファ
-	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * 6);
-	assert(vertexResource != nullptr);
-
+	//モデル読み込み
+	ModelData modelData = LoadObjFile("resources", "plane.obj");
+	//頂点リソースを作る
+	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * modelData.vertices.size());
+	//頂点バッファービューを作る
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
 	vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
-	vertexBufferView.SizeInBytes = sizeof(VertexData) * 6;
+	vertexBufferView.SizeInBytes = UINT(sizeof(VertexData) * modelData.vertices.size());
 	vertexBufferView.StrideInBytes = sizeof(VertexData);
-
+	//頂点リソースにデータを書きこむ
 	VertexData* vertexData = nullptr;
 	vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
-
-	// 3D三角形用の頂点データ
-	vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f };
-	vertexData[0].texcoord = { 0.0f, 1.0f };
-
-	vertexData[1].position = { 0.0f,  0.5f, 0.0f, 1.0f };
-	vertexData[1].texcoord = { 0.5f, 0.0f };
-
-	vertexData[2].position = { 0.5f, -0.5f, 0.0f, 1.0f };
-	vertexData[2].texcoord = { 1.0f, 1.0f };
-
-	vertexData[3].position = { -0.5f, -0.5f, 0.5f, 1.0f };
-	vertexData[3].texcoord = { 0.0f, 1.0f };
-
-	vertexData[4].position = { 0.0f,  0.0f, 0.0f, 1.0f };
-	vertexData[4].texcoord = { 0.5f, 0.0f };
-
-	vertexData[5].position = { 0.5f, -0.5f, -0.5f, 1.0f };
-	vertexData[5].texcoord = { 1.0f, 1.0f };
-
-	for (uint32_t i = 0; i < 6; ++i) {
-		vertexData[i].normal = { 0.0f, 0.0f, -1.0f };
-	}
+	std::memcpy(vertexData, modelData.vertices.data(), sizeof(VertexData) * modelData.vertices.size());
 	vertexResource->Unmap(0, nullptr);
 
 	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 4);
@@ -734,7 +849,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		{ 0.0f, 0.0f, 0.0f }
 	};
 	// 1枚目のテクスチャ読み込みとSRV生成 (index = 1)
-	DirectX::ScratchImage mipImages = LoadTexture("resources/uvChecker.png");
+	DirectX::ScratchImage mipImages = LoadTexture(modelData.material.textureFilePath);
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
 	ID3D12Resource* textureResource = CreateTextureResource(device, metadata);
 	UploadTextureData(textureResource, mipImages);
@@ -758,7 +873,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	srvDesc2.Format = metadata2.format;
 	srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc2.Texture2D.MipLevels = UINT(metadata.mipLevels);
+	srvDesc2.Texture2D.MipLevels = UINT(metadata2.mipLevels);
 
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 = GetCPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 2);
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = GetGPUDescriptorHandle(srvDescriptorHeap, descriptorSizeSRV, 2);
@@ -940,9 +1055,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
-			commandList->IASetIndexBuffer(&indexBufferView);
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+			commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
 
 			//  球体オブジェクトを描画
 			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
