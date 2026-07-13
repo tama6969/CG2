@@ -364,3 +364,4 @@ FodyWeavers.xsd
 
 # DirectXTex Compiled Shaders
 **/DirectXTex/Shaders/Compiled/
+!resources/**/*.obj
