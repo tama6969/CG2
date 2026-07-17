@@ -21,6 +21,9 @@
 #include "externals/DirectXTex/DirectXTex.h"
 #include "MatrixMath.h"
 #include "SphereMesh.h"
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
+
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"                         
 #include "externals/imgui/imgui_impl_dx12.h"       
@@ -34,6 +37,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 #pragma comment(lib, "Dbghelp.lib")
 #pragma comment(lib, "dxcompiler.lib")
 #pragma comment(lib,"xaudio2.lib")
+#pragma comment(lib,"dinput8.lib")
+#pragma comment(lib,"dxguid.lib")
 using Microsoft::WRL::ComPtr;
 class ResourceObject {
 public:
@@ -1002,7 +1007,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		{ 0.0f, 0.0f, 0.0f },
 		{ 0.0f, 0.0f, 0.0f }
 	};
-	// 1枚目のテクスチャ読み込みとSRV生成 (index = 1)
+	// 1枚目のテクスチャ読み込みとSRV生成
 	DirectX::ScratchImage mipImages = LoadTexture(modelData.material.textureFilePath);
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
 	ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device, metadata);
@@ -1076,7 +1081,30 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	assert(SUCCEEDED(hr));
 	SoundData soundData1 = SoundLoadWave("Resources/fanfare.wav");
 	SoundPlayWave(xaudio2.Get(), soundData1);
+
+	// DirectInputの初期化
+	IDirectInput8* directInput = nullptr;
+	hr = DirectInput8Create(
+		wc.hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8,
+		(void**)&directInput, nullptr);
+	assert(SUCCEEDED(hr));
+
+	// キーボードデバイスの生成
+	IDirectInputDevice8* keyboard = nullptr;
+	hr = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
+	assert(SUCCEEDED(hr));
+
+	// 入力データ形式のセット
+	hr = keyboard->SetDataFormat(&c_dfDIKeyboard);
+	assert(SUCCEEDED(hr));
+
+	// 排他制御レベルのセット
+	hr = keyboard->SetCooperativeLevel(
+		hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+	assert(SUCCEEDED(hr));
+
 	MSG msg{};
+
 	while (msg.message != WM_QUIT)
 	{
 		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
@@ -1086,6 +1114,19 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		}
 		else
 		{
+			// キーボード情報の取得開始
+			keyboard->Acquire();
+
+			// 全キーの入力状態を取得する
+			BYTE key[256] = {};
+			keyboard->GetDeviceState(sizeof(key), key);
+
+			// 数字の0キーが押されていたら
+			if (key[DIK_0])
+			{
+				OutputDebugStringA("Hit 0\n");
+			}
+
 #ifdef USE_IMGUI
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
