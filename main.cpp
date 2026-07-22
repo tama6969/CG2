@@ -18,9 +18,10 @@
 #include <dxgidebug.h>
 #include <dxcapi.h>	
 #include <xaudio2.h>
-#include "externals/DirectXTex/DirectXTex.h"
 #include "MatrixMath.h"
 #include "SphereMesh.h"
+#include "DebugCamera.h"
+#include "externals/DirectXTex/DirectXTex.h"
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
 
