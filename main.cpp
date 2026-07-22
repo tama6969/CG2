@@ -1,3 +1,7 @@
+#ifndef DIRECTINPUT_VERSION
+#define DIRECTINPUT_VERSION 0x0800
+#endif
+
 #include <windows.h>
 #include <cstdint>
 #include <string>
@@ -18,12 +22,11 @@
 #include <dxgidebug.h>
 #include <dxcapi.h>	
 #include <xaudio2.h>
+#include <dinput.h>
 #include "MatrixMath.h"
 #include "SphereMesh.h"
 #include "DebugCamera.h"
 #include "externals/DirectXTex/DirectXTex.h"
-#define DIRECTINPUT_VERSION 0x0800
-#include <dinput.h>
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"                         
@@ -1104,6 +1107,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
 	assert(SUCCEEDED(hr));
 
+	DebugCamera debugCamera;
+	debugCamera.Initialize();
+
 	MSG msg{};
 
 	while (msg.message != WM_QUIT)
@@ -1120,7 +1126,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 			// 全キーの入力状態を取得する
 			BYTE key[256] = {};
-			keyboard->GetDeviceState(sizeof(key), key);
+			HRESULT inputResult = keyboard->GetDeviceState(sizeof(key), key);
+			if (FAILED(inputResult)) {
+				keyboard->Acquire();
+				keyboard->GetDeviceState(sizeof(key), key);
+			}
+
+			debugCamera.Update(key);
 
 			// 数字の0キーが押されていたら
 			if (key[DIK_0])
@@ -1187,14 +1199,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			transform.rotate.y += 0.03f;
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 
-			Transform cameraTransform{
-				{ 1.0f, 1.0f, 1.0f },
-				{ 0.0f, 0.0f, 0.0f },
-				{ 0.0f, 0.0f, -5.0f }
-			};
-			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
-			Matrix4x4 viewMatrix = Inverse(cameraMatrix);
-			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
+			Matrix4x4 viewMatrix = debugCamera.GetViewMatrix();
+			Matrix4x4 projectionMatrix = debugCamera.GetProjectionMatrix();
 			Matrix4x4 worldViewProjectionMatrix = MultiplyMatrix4x4(worldMatrix, MultiplyMatrix4x4(viewMatrix, projectionMatrix));
 			wvpData->WVP = worldViewProjectionMatrix;
 			wvpData->World = worldMatrix;
