@@ -27,6 +27,7 @@
 #include "SphereMesh.h"
 #include "DebugCamera.h"
 #include "externals/DirectXTex/DirectXTex.h"
+#include "externals/DirectXTex/d3dx12.h"
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"                         
@@ -392,16 +393,14 @@ ComPtr<ID3D12Resource> CreateTextureResource(const ComPtr<ID3D12Device>& device,
 	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION(metadata.dimension);
 
 	D3D12_HEAP_PROPERTIES heapProperties{};
-	heapProperties.Type = D3D12_HEAP_TYPE_CUSTOM;
-	heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_WRITE_BACK;
-	heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_L0;
+	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
 	ComPtr<ID3D12Resource> resource;
 	HRESULT hr = device->CreateCommittedResource(
 		&heapProperties,
 		D3D12_HEAP_FLAG_NONE,
 		&resourceDesc,
-		D3D12_RESOURCE_STATE_GENERIC_READ,
+		D3D12_RESOURCE_STATE_COPY_DEST,
 		nullptr,
 		IID_PPV_ARGS(resource.GetAddressOf())
 	);
@@ -409,21 +408,49 @@ ComPtr<ID3D12Resource> CreateTextureResource(const ComPtr<ID3D12Device>& device,
 
 	return resource;
 }
-
-void UploadTextureData(const ComPtr<ID3D12Resource>& texture, const DirectX::ScratchImage& mipImages)
+ComPtr<ID3D12Resource> CreateBufferResource(
+	const ComPtr<ID3D12Device>& device,
+	size_t sizeInBytes);
+[[nodiscard]]
+ComPtr<ID3D12Resource> UploadTextureData(
+	const ComPtr<ID3D12Resource>& texture,
+	const DirectX::ScratchImage& mipImages,
+	const ComPtr<ID3D12Device>& device,
+	const ComPtr<ID3D12GraphicsCommandList>& commandList)
 {
-	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-	for (size_t mipLevel = 0; mipLevel < metadata.mipLevels; ++mipLevel) {
-		const DirectX::Image* img = mipImages.GetImage(mipLevel, 0, 0);
-		HRESULT hr = texture->WriteToSubresource(
-			UINT(mipLevel),
-			nullptr,
-			img->pixels,
-			UINT(img->rowPitch),
-			UINT(img->slicePitch)
-		);
-		assert(SUCCEEDED(hr));
-	}
+	std::vector<D3D12_SUBRESOURCE_DATA> subresources;
+	DirectX::PrepareUpload(
+		device.Get(),
+		mipImages.GetImages(),
+		mipImages.GetImageCount(),
+		mipImages.GetMetadata(),
+		subresources);
+
+	uint64_t intermediateSize = GetRequiredIntermediateSize(
+		texture.Get(), 0, UINT(subresources.size()));
+
+	ComPtr<ID3D12Resource> intermediateResource =
+		CreateBufferResource(device, intermediateSize);
+
+	UpdateSubresources(
+		commandList.Get(),
+		texture.Get(),
+		intermediateResource.Get(),
+		0,
+		0,
+		UINT(subresources.size()),
+		subresources.data());
+
+	D3D12_RESOURCE_BARRIER barrier{};
+	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+	barrier.Transition.pResource = texture.Get();
+	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+	barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+	barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
+	commandList->ResourceBarrier(1, &barrier);
+
+	return intermediateResource;
 }
 
 ID3D12Resource* CreateDepthStencilTextureResource(const ComPtr<ID3D12Device>& device, int32_t width, int32_t height) {
@@ -1015,7 +1042,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	DirectX::ScratchImage mipImages = LoadTexture(modelData.material.textureFilePath);
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
 	ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device, metadata);
-	UploadTextureData(textureResource, mipImages);
+	ComPtr<ID3D12Resource> intermediateResource =
+		UploadTextureData(textureResource, mipImages, device, commandList);
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
 	srvDesc.Format = metadata.format;
@@ -1030,7 +1058,8 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	DirectX::ScratchImage mipImages2 = LoadTexture("resources/monsterBall.png");
 	const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
 	ComPtr<ID3D12Resource> textureResource2 = CreateTextureResource(device, metadata2);
-	UploadTextureData(textureResource2, mipImages2);
+	ComPtr<ID3D12Resource> intermediateResource2 =
+		UploadTextureData(textureResource2, mipImages2, device, commandList);
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2{};
 	srvDesc2.Format = metadata2.format;
@@ -1308,6 +1337,10 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 				fence->SetEventOnCompletion(fenceValue, fenceEvent);
 				WaitForSingleObject(fenceEvent, INFINITE);
 			}
+
+			// テクスチャ転送の実行完了後、中間リソースを解放する
+			intermediateResource.Reset();
+			intermediateResource2.Reset();
 
 			hr = commandAllocator->Reset();
 			assert(SUCCEEDED(hr));
