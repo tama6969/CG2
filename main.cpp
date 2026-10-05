@@ -1377,7 +1377,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	ImGui::DestroyContext();
 #endif
 #ifdef _DEBUG
-	// debugControllerもComPtrが自動解放する
+	// debugControllerもComPtrが自動解放するk
 #endif
 
 	DestroyWindow(hwnd);
