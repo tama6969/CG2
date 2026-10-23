@@ -828,7 +828,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	graphicsPipelineStateDesc.InputLayout = inputLayoutDesc;
 	graphicsPipelineStateDesc.VS = { vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() };
 	graphicsPipelineStateDesc.PS = { pixelShaderBlob->GetBufferPointer(), pixelShaderBlob->GetBufferSize() };
-	graphicsPipelineStateDesc.BlendState = blendState.GetBlendDesc(BlendMode::kNormal);
+	graphicsPipelineStateDesc.BlendState = blendState.GetBlendDesc(BlendMode::kNone);
 	graphicsPipelineStateDesc.RasterizerState = rasterizerDesc;
 	graphicsPipelineStateDesc.NumRenderTargets = 1;
 	graphicsPipelineStateDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
@@ -849,7 +849,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 	// 3Dオブジェクト用 頂点バッファ
 	//モデル読み込み
-	ModelData modelData = LoadObjFile("resources", "plane.obj");
+	ModelData modelData = LoadObjFile("resources/fence", "fence.obj");
 	//頂点リソースを作る
 	ComPtr<ID3D12Resource> vertexResource = CreateBufferResource(device, sizeof(VertexData) * modelData.vertices.size());
 	//頂点バッファービューを作る

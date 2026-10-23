@@ -1,4 +1,3 @@
-
 #include "Object3d.hlsli"
 
 struct Material
@@ -57,6 +56,16 @@ PixelShaderOutput main(VertexShaderOutput input)
     else
     {
         output.color = gMaterial.color * textureColor;
+    }
+
+    // ========================================
+    // 2値抜き（Binary Alpha / αTest）
+    // ========================================
+
+    // α値が0.5以下のPixelを破棄する
+    if (output.color.a <= 0.5f)
+    {
+        discard;
     }
 
     return output;
