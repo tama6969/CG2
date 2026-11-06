@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <random>
 #include "MatrixMath.h"
 #include <d3d12.h>
 #include <wrl.h>
@@ -10,6 +11,23 @@
 class Particle {
 public:
     static constexpr uint32_t kNumMaxInstance = 10;
+
+    // ImGuiから調整する値。描画・移動に毎フレーム反映される。
+    struct Settings {
+        bool enabled = true;
+        bool update = true;
+        int count = 10;
+        float size = 1.0f;
+        float speed = 1.0f;
+        float spawnRange = 1.0f;
+        float velocityRange = 1.0f;
+        Vector3 position = { 0.0f, 0.0f, 0.0f };
+        int blendMode = 1; // 0:None, 1:Normal, 2:Add
+    };
+
+    Settings& GetSettings() { return settings_; }
+    const Settings& GetSettings() const { return settings_; }
+    void ResetParticles();
 
     void Initialize(
         ID3D12Device* device,
@@ -31,14 +49,18 @@ public:
     ~Particle();
 
 private:
-    // C++のデータレイアウトとParticle.VS.hlslの構造体を合わせる
+ 
     struct ParticleForGPU {
         Matrix4x4 WVP;
         Matrix4x4 World;
     };
+    struct ParticleData {
+        Transform transform;
+        Vector3 velocity;
+    };
 
-    // 粒ごとのTransform。今回は授業資料に合わせて10個を固定配置する。
-    std::vector<Transform> transforms_;
+    Settings settings_{};
+    std::vector<ParticleData> particles_;
     uint32_t numInstance_ = 0;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
@@ -47,4 +69,6 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource_;
     ParticleForGPU* instancingData_ = nullptr;
     D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU_{};
+
+    std::mt19937 randomEngine_;
 };

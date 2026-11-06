@@ -924,11 +924,16 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	particlePipelineDesc.BlendState = blendState.GetBlendDesc(BlendMode::kNormal);
 	particlePipelineDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	particlePipelineDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	ComPtr<ID3D12PipelineState> particlePipelineState;
-	hr = device->CreateGraphicsPipelineState(
-		&particlePipelineDesc, IID_PPV_ARGS(particlePipelineState.GetAddressOf())
-	);
-	assert(SUCCEEDED(hr));
+	// ImGuiからブレンドを切り替えるため、Particle用のPSOを3種類作成する。
+	ComPtr<ID3D12PipelineState> particlePipelineStates[3];
+	BlendMode particleBlendModes[3] = { BlendMode::kNone, BlendMode::kNormal, BlendMode::kAdd };
+	for (int32_t index = 0; index < 3; ++index) {
+		particlePipelineDesc.BlendState = blendState.GetBlendDesc(particleBlendModes[index]);
+		hr = device->CreateGraphicsPipelineState(
+			&particlePipelineDesc, IID_PPV_ARGS(particlePipelineStates[index].GetAddressOf())
+		);
+		assert(SUCCEEDED(hr));
+	}
 
 	// 3Dオブジェクト用 頂点バッファ
 	//モデル読み込み
@@ -1085,6 +1090,17 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	materialDataSprite->enableLighting = false;
 	materialDataSprite->uvTransform = MakeIdentity4x4();
 	materialResourceSprite->Unmap(0, nullptr);
+
+	// Particle専用Material: 色変更が既存Spriteへ影響しないように分ける。
+	size_t particleMaterialBufferSize = (sizeof(Material) + 255) & ~255;
+	ComPtr<ID3D12Resource> particleMaterialResource = CreateBufferResource(device, particleMaterialBufferSize);
+	assert(particleMaterialResource != nullptr);
+	Material* particleMaterialData = nullptr;
+	hr = particleMaterialResource->Map(0, nullptr, reinterpret_cast<void**>(&particleMaterialData));
+	assert(SUCCEEDED(hr));
+	particleMaterialData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	particleMaterialData->enableLighting = false;
+	particleMaterialData->uvTransform = MakeIdentity4x4();
 
 	// 平行光源用CBufferリソースの作成
 	size_t directionalLightBufferSize = (sizeof(DirectionalLight) + 255) & ~255;
@@ -1315,6 +1331,30 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 				directionalLightData->direction.z /= length;
 			}
 			ImGui::End();
+
+			// 録画のSettingsウィンドウと同様に、描画中にパラメータを操作する。
+			ImGui::SetNextWindowPos(ImVec2(895.0f, 45.0f), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSize(ImVec2(345.0f, 415.0f), ImGuiCond_FirstUseEver);
+			ImGui::Begin("Particle Settings");
+			Particle::Settings& particleSettings = particle.GetSettings();
+			ImGui::Checkbox("Enable##Particle", &particleSettings.enabled);
+			ImGui::Checkbox("Update##Particle", &particleSettings.update);
+			ImGui::SliderInt("Count##Particle", &particleSettings.count, 0, static_cast<int>(Particle::kNumMaxInstance));
+			ImGui::SliderFloat("Size##Particle", &particleSettings.size, 0.1f, 3.0f);
+			ImGui::SliderFloat("Speed##Particle", &particleSettings.speed, 0.0f, 5.0f);
+			ImGui::DragFloat3("Position##Particle", &particleSettings.position.x, 0.05f, -20.0f, 20.0f);
+			ImGui::Separator();
+			ImGui::ColorEdit4("Color##Particle", &particleMaterialData->color.x);
+			const char* blendItems[] = { "None", "Normal", "Add" };
+			ImGui::Combo("Blend##Particle", &particleSettings.blendMode, blendItems, 3);
+			ImGui::Separator();
+			ImGui::SliderFloat("Spawn Range##Particle", &particleSettings.spawnRange, 0.0f, 10.0f);
+			ImGui::SliderFloat("Velocity Range##Particle", &particleSettings.velocityRange, 0.0f, 3.0f);
+			if (ImGui::Button("Randomize / Reset")) {
+				particle.ResetParticles();
+			}
+			ImGui::TextDisabled("Spawn and velocity ranges apply on Reset.");
+			ImGui::End();
 #endif
 			transform.rotate.y += 0.03f;
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
@@ -1397,8 +1437,13 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->DrawIndexedInstanced(UINT(sphereIndices.size()), 1, 0, 0, 0);
 
 			// 10粒を一度のDrawInstancedで描画
-			particle.Draw(commandList.Get(), particleRootSignature.Get(), particlePipelineState.Get(),
-				materialResourceSprite->GetGPUVirtualAddress(), textureSrvHandleGPU);
+			// Particle Settingsに応じてBlend PSOと専用Materialを使う。
+			int32_t particleBlendIndex = particle.GetSettings().blendMode;
+			if (particleBlendIndex < 0 || particleBlendIndex > 2) {
+				particleBlendIndex = 1;
+			}
+			particle.Draw(commandList.Get(), particleRootSignature.Get(), particlePipelineStates[particleBlendIndex].Get(),
+				particleMaterialResource->GetGPUVirtualAddress(), textureSrvHandleGPU);
 
 			// 以降は既存3D用RootSignature/PSOへ戻す(スプライト描画用)
 			commandList->SetGraphicsRootSignature(rootSignature.Get());
@@ -1465,6 +1510,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		WaitForSingleObject(fenceEvent, INFINITE);
 	}
 	CloseHandle(fenceEvent);
+
+	// Particle専用マテリアルを解放
+	particleMaterialResource->Unmap(0, nullptr);
 
 	// 球体用解放
 	sphereWvpResource->Unmap(0, nullptr);

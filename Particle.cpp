@@ -33,7 +33,7 @@ namespace {
         return resource;
     }
 
-}
+} // namespace
 
 void Particle::Initialize(
     ID3D12Device* device,
@@ -44,7 +44,7 @@ void Particle::Initialize(
     assert(device != nullptr);
     assert(srvDescriptorHeap != nullptr);
 
-    //四角形 6頂点 三角形2枚。
+    // 資料の四角形: 6頂点(三角形2枚)。頂点情報は全粒で共通
     const VertexData vertices[6] = {
         { {  1.0f,  1.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } },
         { { -1.0f,  1.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } },
@@ -70,13 +70,12 @@ void Particle::Initialize(
     hr = instancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&instancingData_));
     assert(SUCCEEDED(hr));
 
-    //Resourceの作成 10個のWVP / Worldを単位行列で初期化
-    for (uint32_t i = 0; i < kNumMaxInstance; ++i) {
-        instancingData_[i].WVP = MakeIdentity4x4();
-        instancingData_[i].World = MakeIdentity4x4();
+    for (uint32_t index = 0; index < kNumMaxInstance; ++index) {
+        instancingData_[index].WVP = MakeIdentity4x4();
+        instancingData_[index].World = MakeIdentity4x4();
     }
 
-    //SRVの作成
+    // StructuredBuffer用SRV
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
     srvDesc.Format = DXGI_FORMAT_UNKNOWN;
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -96,26 +95,61 @@ void Particle::Initialize(
     instancingSrvHandleGPU_.ptr += static_cast<UINT64>(descriptorSizeSRV) * srvIndex;
     device->CreateShaderResourceView(instancingResource_.Get(), &srvDesc, srvHandleCPU);
 
-    // 最大10粒分を確保して少しずつずらす
-    transforms_.clear();
-    transforms_.reserve(kNumMaxInstance);
+    // 乱数生成器を1度だけ初期化する。
+    std::random_device seedGenerator;
+    randomEngine_.seed(seedGenerator());
+    ResetParticles();
+}
+
+// 初期位置と速度を再抽選する。ImGuiの「Randomize」ボタンからも呼べる。
+void Particle::ResetParticles() {
+    const float spawnRange = settings_.spawnRange < 0.0f ? 0.0f : settings_.spawnRange;
+    const float velocityRange = settings_.velocityRange < 0.0f ? 0.0f : settings_.velocityRange;
+    std::uniform_real_distribution<float> positionDistribution(-spawnRange, spawnRange);
+    std::uniform_real_distribution<float> velocityDistribution(-velocityRange, velocityRange);
+
+    particles_.clear();
+    particles_.reserve(kNumMaxInstance);
     for (uint32_t index = 0; index < kNumMaxInstance; ++index) {
-        Transform transform{};
-        transform.scale = { 1.0f, 1.0f, 1.0f };
-        transform.rotate = { 0.0f, 0.0f, 0.0f };
-        float offset = static_cast<float>(index) * 0.1f;
-        transform.translate = { offset, offset, offset };
-        transforms_.push_back(transform);
+        ParticleData particle{};
+        particle.transform.scale = { 1.0f, 1.0f, 1.0f };
+        particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
+        particle.transform.translate = {
+            positionDistribution(randomEngine_),
+            positionDistribution(randomEngine_),
+            positionDistribution(randomEngine_)
+        };
+        particle.velocity = {
+            velocityDistribution(randomEngine_),
+            velocityDistribution(randomEngine_),
+            velocityDistribution(randomEngine_)
+        };
+        particles_.push_back(particle);
     }
-    numInstance_ = static_cast<uint32_t>(transforms_.size());
-    assert(numInstance_ <= kNumMaxInstance);
+    numInstance_ = static_cast<uint32_t>(settings_.count);
 }
 
 void Particle::Update(const Matrix4x4& viewMatrix, const Matrix4x4& projectionMatrix) {
-    //TransformからWorldとWVPを求めマップしたGPU用Resourceに書く
+    // 授業資料の固定60fps想定。将来は実測deltaTimeに置き換える。
+    const float kDeltaTime = 1.0f / 60.0f;
     const Matrix4x4 viewProjectionMatrix = MultiplyMatrix4x4(viewMatrix, projectionMatrix);
+    const int clampedCount = settings_.count < 0 ? 0 :
+        (settings_.count > static_cast<int>(kNumMaxInstance) ? static_cast<int>(kNumMaxInstance) : settings_.count);
+    numInstance_ = static_cast<uint32_t>(clampedCount);
+
     for (uint32_t index = 0; index < numInstance_; ++index) {
-        const Transform& transform = transforms_[index];
+        if (settings_.update) {
+            particles_[index].transform.translate.x += particles_[index].velocity.x * kDeltaTime * settings_.speed;
+            particles_[index].transform.translate.y += particles_[index].velocity.y * kDeltaTime * settings_.speed;
+            particles_[index].transform.translate.z += particles_[index].velocity.z * kDeltaTime * settings_.speed;
+        }
+
+        Transform transform = particles_[index].transform;
+        transform.scale = { settings_.size, settings_.size, settings_.size };
+        transform.translate.x += settings_.position.x;
+        transform.translate.y += settings_.position.y;
+        transform.translate.z += settings_.position.z;
+
         Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
         Matrix4x4 worldViewProjectionMatrix = MultiplyMatrix4x4(worldMatrix, viewProjectionMatrix);
         instancingData_[index].WVP = worldViewProjectionMatrix;
@@ -130,9 +164,10 @@ void Particle::Draw(
     D3D12_GPU_VIRTUAL_ADDRESS materialCBV,
     D3D12_GPU_DESCRIPTOR_HANDLE textureSRV
 ) const {
-    if (numInstance_ == 0) {
+    if (!settings_.enabled || numInstance_ == 0) {
         return;
     }
+
     commandList->SetGraphicsRootSignature(rootSignature);
     commandList->SetPipelineState(pipelineState);
     commandList->SetGraphicsRootConstantBufferView(0, materialCBV);
