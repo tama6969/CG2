@@ -28,6 +28,7 @@
 #include "MatrixMath.h"
 #include "SphereMesh.h"
 #include "DebugCamera.h"
+#include "Particle.h"
 #include "BlendMode.h"
 #include "externals/DirectXTex/DirectXTex.h"
 #include "externals/DirectXTex/d3dx12.h"
@@ -742,6 +743,12 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(L"Object3D.PS.hlsl", L"ps_6_0", g_dxcUtils, g_dxcCompiler, g_includeHandler);
 	assert(pixelShaderBlob != nullptr);
 
+	// Particleの頂点シェーダー(Instancing用)
+	ComPtr<IDxcBlob> particleVertexShaderBlob = CompileShader(L"Particle.VS.hlsl", L"vs_6_0", g_dxcUtils, g_dxcCompiler, g_includeHandler);
+	assert(particleVertexShaderBlob != nullptr);
+	ComPtr<IDxcBlob> particlePixelShaderBlob = CompileShader(L"Particle.PS.hlsl", L"ps_6_0", g_dxcUtils, g_dxcCompiler, g_includeHandler);
+	assert(particlePixelShaderBlob != nullptr);
+
 	D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
 	descriptorRange[0].BaseShaderRegister = 0;
 	descriptorRange[0].NumDescriptors = 1;
@@ -845,6 +852,82 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	graphicsPipelineStateDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
 	ComPtr<ID3D12PipelineState> graphicsPipelineState;
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc, IID_PPV_ARGS(graphicsPipelineState.GetAddressOf()));
+	assert(SUCCEEDED(hr));
+
+	// Particle専用RootSignature。Object3d用のRootSignatureは変更しない。
+	// VSのt0: 粒ごとのTransformationMatrix (StructuredBuffer)
+	D3D12_DESCRIPTOR_RANGE particleInstanceRange[1] = {};
+	particleInstanceRange[0].BaseShaderRegister = 0;
+	particleInstanceRange[0].NumDescriptors = 1;
+	particleInstanceRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	particleInstanceRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	// PSのt0: Texture2D。VS側とregister(t0)が同じでもShaderVisibilityが異なる。
+	D3D12_DESCRIPTOR_RANGE particleTextureRange[1] = {};
+	particleTextureRange[0].BaseShaderRegister = 0;
+	particleTextureRange[0].NumDescriptors = 1;
+	particleTextureRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	particleTextureRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	D3D12_ROOT_PARAMETER particleRootParameters[3] = {};
+	// [0] PSのb0: ParticleのMaterial
+	particleRootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	particleRootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	particleRootParameters[0].Descriptor.ShaderRegister = 0;
+
+	// [1] VSのt0: 10粒分の行列を参照するSRV
+	particleRootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	particleRootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	particleRootParameters[1].DescriptorTable.pDescriptorRanges = particleInstanceRange;
+	particleRootParameters[1].DescriptorTable.NumDescriptorRanges = _countof(particleInstanceRange);
+
+	// [2] PSのt0: Texture2D用SRV
+	particleRootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	particleRootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	particleRootParameters[2].DescriptorTable.pDescriptorRanges = particleTextureRange;
+	particleRootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(particleTextureRange);
+
+	D3D12_ROOT_SIGNATURE_DESC particleRootSignatureDesc = descriptionRootSignature;
+	particleRootSignatureDesc.pParameters = particleRootParameters;
+	particleRootSignatureDesc.NumParameters = _countof(particleRootParameters);
+	ComPtr<ID3DBlob> particleSignatureBlob;
+	ComPtr<ID3DBlob> particleErrorBlob;
+	hr = D3D12SerializeRootSignature(
+		&particleRootSignatureDesc,
+		D3D_ROOT_SIGNATURE_VERSION_1,
+		&particleSignatureBlob,
+		&particleErrorBlob
+	);
+	if (FAILED(hr)) {
+		if (particleErrorBlob != nullptr) {
+			Log(reinterpret_cast<const char*>(particleErrorBlob->GetBufferPointer()));
+		}
+		assert(false);
+	}
+	ComPtr<ID3D12RootSignature> particleRootSignature;
+	hr = device->CreateRootSignature(
+		0,
+		particleSignatureBlob->GetBufferPointer(),
+		particleSignatureBlob->GetBufferSize(),
+		IID_PPV_ARGS(particleRootSignature.GetAddressOf())
+	);
+	assert(SUCCEEDED(hr));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC particlePipelineDesc = graphicsPipelineStateDesc;
+	particlePipelineDesc.pRootSignature = particleRootSignature.Get();
+	particlePipelineDesc.VS = {
+		particleVertexShaderBlob->GetBufferPointer(), particleVertexShaderBlob->GetBufferSize()
+	};
+	particlePipelineDesc.PS = {
+		particlePixelShaderBlob->GetBufferPointer(), particlePixelShaderBlob->GetBufferSize()
+	};
+	particlePipelineDesc.BlendState = blendState.GetBlendDesc(BlendMode::kNormal);
+	particlePipelineDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	particlePipelineDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	ComPtr<ID3D12PipelineState> particlePipelineState;
+	hr = device->CreateGraphicsPipelineState(
+		&particlePipelineDesc, IID_PPV_ARGS(particlePipelineState.GetAddressOf())
+	);
 	assert(SUCCEEDED(hr));
 
 	// 3Dオブジェクト用 頂点バッファ
@@ -1140,6 +1223,10 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
 	assert(SUCCEEDED(hr));
 
+	// SRVヒープの3番を粒ごとのStructuredBufferに使用する(0=ImGui, 1/2=テクスチャ)
+	Particle particle;
+	particle.Initialize(device.Get(), srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
+
 	DebugCamera debugCamera;
 	debugCamera.Initialize();
 
@@ -1238,6 +1325,9 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			wvpData->WVP = worldViewProjectionMatrix;
 			wvpData->World = worldMatrix;
 
+			// 粒10個ぶんのWVP行列を更新
+			particle.Update(viewMatrix, projectionMatrix);
+
 			// 球体の行列更新
 			Matrix4x4 sphereWorldMatrix = MakeAffineMatrix(sphereTransform.scale, sphereTransform.rotate, sphereTransform.translate);
 			Matrix4x4 sphereWvpMatrix = MultiplyMatrix4x4(sphereWorldMatrix, MultiplyMatrix4x4(viewMatrix, projectionMatrix));
@@ -1306,6 +1396,15 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			commandList->DrawIndexedInstanced(UINT(sphereIndices.size()), 1, 0, 0, 0);
 
+			// 10粒を一度のDrawInstancedで描画
+			particle.Draw(commandList.Get(), particleRootSignature.Get(), particlePipelineState.Get(),
+				materialResourceSprite->GetGPUVirtualAddress(), textureSrvHandleGPU);
+
+			// 以降は既存3D用RootSignature/PSOへ戻す(スプライト描画用)
+			commandList->SetGraphicsRootSignature(rootSignature.Get());
+			commandList->SetPipelineState(graphicsPipelineState.Get());
+			commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
+
 			commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
@@ -1332,7 +1431,7 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 
 			swapChain->Present(1, 0);
 
-			
+
 			fenceValue++;
 			commandQueue->Signal(fence.Get(), fenceValue);
 
