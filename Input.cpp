@@ -5,13 +5,14 @@
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
 
-void Input::Initialize(HINSTANCE hInstance, HWND hwnd) {
-    assert(hInstance != nullptr);
-    assert(hwnd != nullptr);
+void Input::Initialize(WinApp* winApp) {
+    // 借りてきたWinAppのインスタンスを記録
+    winApp_ = winApp;
+    assert(winApp_ != nullptr);
 
     HRESULT result;
     result = DirectInput8Create(
-        hInstance,
+        winApp_->GetHInstance(),
         DIRECTINPUT_VERSION,
         IID_IDirectInput8,
         reinterpret_cast<void**>(directInput_.GetAddressOf()),
@@ -30,7 +31,7 @@ void Input::Initialize(HINSTANCE hInstance, HWND hwnd) {
     assert(SUCCEEDED(result));
 
     result = keyboard_->SetCooperativeLevel(
-        hwnd,
+        winApp_->GetHwnd(),
         DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY
     );
     assert(SUCCEEDED(result));
