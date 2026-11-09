@@ -4,6 +4,7 @@
 #include <dinput.h>
 #include <wrl.h>
 
+
 class Input {
 public:
     // 初期化
