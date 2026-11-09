@@ -1,9 +1,5 @@
 
 
-#ifndef DIRECTINPUT_VERSION
-#define DIRECTINPUT_VERSION 0x0800
-
-#endif
 #include <windows.h>
 #include <cstdint>
 #include <string>
@@ -24,9 +20,9 @@
 #include <dxgidebug.h>
 #include <dxcapi.h>	
 #include <xaudio2.h>
-#include <dinput.h>
 #include "MatrixMath.h"
 #include "SphereMesh.h"
+#include "Input.h"
 #include "DebugCamera.h"
 #include "Particle.h"
 #include "BlendMode.h"
@@ -40,14 +36,11 @@
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 #endif
 
-#pragma comment(lib,"dxguid.lib")
 #pragma comment(lib,"d3d12.lib")
 #pragma comment(lib,"dxgi.lib")
 #pragma comment(lib, "Dbghelp.lib")
 #pragma comment(lib, "dxcompiler.lib")
 #pragma comment(lib,"xaudio2.lib")
-#pragma comment(lib,"dinput8.lib")
-#pragma comment(lib,"dxguid.lib")
 using Microsoft::WRL::ComPtr;
 class ResourceObject {
 public:
@@ -1218,28 +1211,11 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	SoundData soundData1 = SoundLoadWave("Resources/fanfare.wav");
 	SoundPlayWave(xaudio2.Get(), soundData1);
 
-	// DirectInputの初期化
-	IDirectInput8* directInput = nullptr;
-	hr = DirectInput8Create(
-		wc.hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8,
-		(void**)&directInput, nullptr);
-	assert(SUCCEEDED(hr));
+	// キーボード入力クラスの初期化
+	Input* input = new Input();
+	input->Initialize(wc.hInstance, hwnd);
 
-	// キーボードデバイスの生成
-	IDirectInputDevice8* keyboard = nullptr;
-	hr = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
-	assert(SUCCEEDED(hr));
-
-	// 入力データ形式のセット
-	hr = keyboard->SetDataFormat(&c_dfDIKeyboard);
-	assert(SUCCEEDED(hr));
-
-	// 排他制御レベルのセット
-	hr = keyboard->SetCooperativeLevel(
-		hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
-	assert(SUCCEEDED(hr));
-
-	// SRVヒープの3番を粒ごとのStructuredBufferに使用する(0=ImGui, 1/2=テクスチャ)
+	// SRVヒープの3番を粒ごとのStructuredBufferに使用する(
 	Particle particle;
 	particle.Initialize(device.Get(), srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
 
@@ -1257,21 +1233,14 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 		}
 		else
 		{
-			// キーボード情報の取得開始
-			keyboard->Acquire();
+			// 毎フレームのキーボード入力を更新
+			input->Update();
 
-			// 全キーの入力状態を取得する
-			BYTE key[256] = {};
-			HRESULT inputResult = keyboard->GetDeviceState(sizeof(key), key);
-			if (FAILED(inputResult)) {
-				keyboard->Acquire();
-				keyboard->GetDeviceState(sizeof(key), key);
-			}
-
-			debugCamera.Update(key);
+			// DebugCameraは今までどおりBYTE配列を受け取る
+			debugCamera.Update(input->GetKey());
 
 			// 数字の0キーが押されていたら
-			if (key[DIK_0])
+			if (input->PushKey(DIK_0))
 			{
 				OutputDebugStringA("Hit 0\n");
 			}
@@ -1530,6 +1499,10 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 #ifdef _DEBUG
 	// debugControllerもComPtrが自動解放するk
 #endif
+
+	// ウィンドウ破棄前にDirectInputを解放
+	delete input;
+	input = nullptr;
 
 	DestroyWindow(hwnd);
 
