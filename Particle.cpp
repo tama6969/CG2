@@ -73,6 +73,7 @@ void Particle::Initialize(
     for (uint32_t index = 0; index < kNumMaxInstance; ++index) {
         instancingData_[index].WVP = MakeIdentity4x4();
         instancingData_[index].World = MakeIdentity4x4();
+        instancingData_[index].color = { 1.0f, 1.0f, 1.0f, 1.0f };
     }
 
     // StructuredBuffer用SRV
@@ -101,32 +102,50 @@ void Particle::Initialize(
     ResetParticles();
 }
 
-// 初期位置と速度を再抽選する。ImGuiの「Randomize」ボタンからも呼べる。
-void Particle::ResetParticles() {
+// 授業資料のMakeNewParticle関数。
+// Particleは既存クラス名なので、粒データはParticleDataとして定義している。
+Particle::ParticleData Particle::MakeNewParticle(std::mt19937& randomEngine) const {
     const float spawnRange = settings_.spawnRange < 0.0f ? 0.0f : settings_.spawnRange;
     const float velocityRange = settings_.velocityRange < 0.0f ? 0.0f : settings_.velocityRange;
     std::uniform_real_distribution<float> positionDistribution(-spawnRange, spawnRange);
     std::uniform_real_distribution<float> velocityDistribution(-velocityRange, velocityRange);
+    std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
+    std::uniform_real_distribution<float> distTime(1.0f, 3.0f);
 
+    ParticleData particle{};
+    particle.transform.scale = { 1.0f, 1.0f, 1.0f };
+    particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
+    particle.transform.translate = {
+        positionDistribution(randomEngine),
+        positionDistribution(randomEngine),
+        positionDistribution(randomEngine)
+    };
+    particle.velocity = {
+        velocityDistribution(randomEngine),
+        velocityDistribution(randomEngine),
+        velocityDistribution(randomEngine)
+    };
+    particle.color = {
+        distColor(randomEngine),
+        distColor(randomEngine),
+        distColor(randomEngine),
+        1.0f
+    };
+    particle.lifeTime = distTime(randomEngine);
+    particle.currentTime = 0.0f;
+    return particle;
+}
+
+// 初期位置・速度・色を再抽選。ImGuiのRandomize / Resetからも呼び出せる。
+void Particle::ResetParticles() {
     particles_.clear();
     particles_.reserve(kNumMaxInstance);
     for (uint32_t index = 0; index < kNumMaxInstance; ++index) {
-        ParticleData particle{};
-        particle.transform.scale = { 1.0f, 1.0f, 1.0f };
-        particle.transform.rotate = { 0.0f, 0.0f, 0.0f };
-        particle.transform.translate = {
-            positionDistribution(randomEngine_),
-            positionDistribution(randomEngine_),
-            positionDistribution(randomEngine_)
-        };
-        particle.velocity = {
-            velocityDistribution(randomEngine_),
-            velocityDistribution(randomEngine_),
-            velocityDistribution(randomEngine_)
-        };
-        particles_.push_back(particle);
+        particles_.push_back(MakeNewParticle(randomEngine_));
     }
-    numInstance_ = static_cast<uint32_t>(settings_.count);
+    const int clampedCount = settings_.count < 0 ? 0 :
+        (settings_.count > static_cast<int>(kNumMaxInstance) ? static_cast<int>(kNumMaxInstance) : settings_.count);
+    numInstance_ = static_cast<uint32_t>(clampedCount);
 }
 
 void Particle::Update(const Matrix4x4& viewMatrix, const Matrix4x4& projectionMatrix) {
@@ -135,13 +154,19 @@ void Particle::Update(const Matrix4x4& viewMatrix, const Matrix4x4& projectionMa
     const Matrix4x4 viewProjectionMatrix = MultiplyMatrix4x4(viewMatrix, projectionMatrix);
     const int clampedCount = settings_.count < 0 ? 0 :
         (settings_.count > static_cast<int>(kNumMaxInstance) ? static_cast<int>(kNumMaxInstance) : settings_.count);
-    numInstance_ = static_cast<uint32_t>(clampedCount);
+    numInstance_ = 0;
 
-    for (uint32_t index = 0; index < numInstance_; ++index) {
+    for (uint32_t index = 0; index < static_cast<uint32_t>(clampedCount); ++index) {
+        // 寿命を過ぎた粒は更新も描画も行わない。
+        if (particles_[index].lifeTime <= particles_[index].currentTime) {
+            continue;
+        }
+
         if (settings_.update) {
             particles_[index].transform.translate.x += particles_[index].velocity.x * kDeltaTime * settings_.speed;
             particles_[index].transform.translate.y += particles_[index].velocity.y * kDeltaTime * settings_.speed;
             particles_[index].transform.translate.z += particles_[index].velocity.z * kDeltaTime * settings_.speed;
+            particles_[index].currentTime += kDeltaTime;
         }
 
         Transform transform = particles_[index].transform;
@@ -152,8 +177,14 @@ void Particle::Update(const Matrix4x4& viewMatrix, const Matrix4x4& projectionMa
 
         Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
         Matrix4x4 worldViewProjectionMatrix = MultiplyMatrix4x4(worldMatrix, viewProjectionMatrix);
-        instancingData_[index].WVP = worldViewProjectionMatrix;
-        instancingData_[index].World = worldMatrix;
+        instancingData_[numInstance_].WVP = worldViewProjectionMatrix;
+        instancingData_[numInstance_].World = worldMatrix;
+        instancingData_[numInstance_].color = particles_[index].color;
+
+        // 経過時間が生存可能時間に近づくにつれて透明にする。
+        float alpha = 1.0f - (particles_[index].currentTime / particles_[index].lifeTime);
+        instancingData_[numInstance_].color.w = alpha;
+        ++numInstance_;
     }
 }
 

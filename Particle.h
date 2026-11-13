@@ -22,7 +22,7 @@ public:
         float spawnRange = 1.0f;
         float velocityRange = 1.0f;
         Vector3 position = { 0.0f, 0.0f, 0.0f };
-        int blendMode = 1; // 0:None, 1:Normal, 2:Add
+        int blendMode = 2; // 0:None, 1:Normal, 2:Add
     };
 
     Settings& GetSettings() { return settings_; }
@@ -49,15 +49,24 @@ public:
     ~Particle();
 
 private:
- 
+    // C++のデータレイアウトとParticle.VS.hlslの構造体を合わせる
     struct ParticleForGPU {
         Matrix4x4 WVP;
         Matrix4x4 World;
+        Vector4 color;
     };
+
+    // 授業資料の「Particle構造体」。class名と重なるので名前はParticleDataにしている
     struct ParticleData {
         Transform transform;
         Vector3 velocity;
+        Vector4 color;
+        float lifeTime;
+        float currentTime;
     };
+
+    // Particleの生成処理をまとめる。乱数エンジンは参照渡しで状態を保持する。
+    ParticleData MakeNewParticle(std::mt19937& randomEngine) const;
 
     Settings settings_{};
     std::vector<ParticleData> particles_;
