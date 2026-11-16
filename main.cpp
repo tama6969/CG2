@@ -374,16 +374,16 @@ int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int) {
 	ComPtr<IXAudio2> xaudio2;
 	IXAudio2MasteringVoice* masterVoice;
 
-	ComPtr<IDxcBlob> vertexShaderBlob = dxCommon->CompileShader(L"Object3D.VS.hlsl", L"vs_6_0");
+	ComPtr<IDxcBlob> vertexShaderBlob = dxCommon->CompileShader(L"Resources/shaders/Object3D.VS.hlsl", L"vs_6_0");
 	assert(vertexShaderBlob != nullptr);
 
-	ComPtr<IDxcBlob> pixelShaderBlob = dxCommon->CompileShader(L"Object3D.PS.hlsl", L"ps_6_0");
+	ComPtr<IDxcBlob> pixelShaderBlob = dxCommon->CompileShader(L"Resources/shaders/Object3D.PS.hlsl", L"ps_6_0");
 	assert(pixelShaderBlob != nullptr);
 
 	// Particleの頂点シェーダー(Instancing用)
-	ComPtr<IDxcBlob> particleVertexShaderBlob = dxCommon->CompileShader(L"Particle.VS.hlsl", L"vs_6_0");
+	ComPtr<IDxcBlob> particleVertexShaderBlob = dxCommon->CompileShader(L"Resources/shaders/Particle.VS.hlsl", L"vs_6_0");
 	assert(particleVertexShaderBlob != nullptr);
-	ComPtr<IDxcBlob> particlePixelShaderBlob = dxCommon->CompileShader(L"Particle.PS.hlsl", L"ps_6_0");
+	ComPtr<IDxcBlob> particlePixelShaderBlob = dxCommon->CompileShader(L"Resources/shaders/Particle.PS.hlsl", L"ps_6_0");
 	assert(particlePixelShaderBlob != nullptr);
 
 	D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
