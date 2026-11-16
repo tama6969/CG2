@@ -1,4 +1,7 @@
 #include "WinApp.h"
+#include <timeapi.h>
+
+#pragma comment(lib, "winmm.lib")
 
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
@@ -21,8 +24,10 @@ LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 }
 
 void WinApp::Initialize() {
+    // システムタイマーの分解能を上げる
+    timeBeginPeriod(1);
     // Windowsアプリの初期化
-     CoInitializeEx(0, COINIT_MULTITHREADED);
+   CoInitializeEx(0, COINIT_MULTITHREADED);
 
     wc.lpfnWndProc = WinApp::WindowProc;
     wc.lpszClassName = L"CG2WindowClass";
