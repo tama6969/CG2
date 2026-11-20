@@ -367,3 +367,4 @@ FodyWeavers.xsd
 !resources/**/*.obj
 # Build results
 generated/
+imgui.ini
