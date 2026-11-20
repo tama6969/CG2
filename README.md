@@ -1,1 +1,1 @@
-<img width="1911" height="1062" alt="image" src="https://github.com/user-attachments/assets/fd7ef941-9c0e-449d-8dc4-e2b7a89e3689" />
+[![DebugBuild](https://github.com/tama6969/CG2/actions/workflows/DebugBuild.yml/badge.svg?branch=master)](https://github.com/tama6969/CG2/actions/workflows/DebugBuild.yml)
